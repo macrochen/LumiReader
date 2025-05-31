@@ -6,6 +6,11 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		D21C14CF2DEAE2F900999A3F /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = D21C14CE2DEAE2F900999A3F /* GoogleSignIn */; };
+		D21C14D12DEAE2F900999A3F /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = D21C14D02DEAE2F900999A3F /* GoogleSignInSwift */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		D2909F252DEAB0F700832E4F /* LumiReader.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LumiReader.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -23,6 +28,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D21C14CF2DEAE2F900999A3F /* GoogleSignIn in Frameworks */,
+				D21C14D12DEAE2F900999A3F /* GoogleSignInSwift in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -65,6 +72,8 @@
 			);
 			name = LumiReader;
 			packageProductDependencies = (
+				D21C14CE2DEAE2F900999A3F /* GoogleSignIn */,
+				D21C14D02DEAE2F900999A3F /* GoogleSignInSwift */,
 			);
 			productName = LumiReader;
 			productReference = D2909F252DEAB0F700832E4F /* LumiReader.app */;
@@ -94,6 +103,9 @@
 			);
 			mainGroup = D2909F1C2DEAB0F600832E4F;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				D21C14CD2DEAE2F900999A3F /* XCLocalSwiftPackageReference "../GoogleSignIn-iOS" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = D2909F262DEAB0F700832E4F /* Products */;
 			projectDirPath = "";
@@ -261,6 +273,7 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.3.1;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -289,6 +302,7 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.3.1;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -324,6 +338,24 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		D21C14CD2DEAE2F900999A3F /* XCLocalSwiftPackageReference "../GoogleSignIn-iOS" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../GoogleSignIn-iOS";
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		D21C14CE2DEAE2F900999A3F /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = GoogleSignIn;
+		};
+		D21C14D02DEAE2F900999A3F /* GoogleSignInSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = GoogleSignInSwift;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = D2909F1D2DEAB0F600832E4F /* Project object */;
 }

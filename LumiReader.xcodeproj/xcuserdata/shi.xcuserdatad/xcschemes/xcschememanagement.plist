@@ -2,12 +2,28 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>43547905274-jbek0e8gt3iqh64kgka2ladanffh0m6f.apps.googleusercontent.com</string>
+			</array>
+		</dict>
+	</array>
+	<key>GoogleClientID</key>
+	<string>43547905274-jbek0e8gt3iqh64kgka2ladanffh0m6f.apps.googleusercontent.com</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
 	<key>SchemeUserState</key>
 	<dict>
 		<key>LumiReader.xcscheme_^#shared#^_</key>
 		<dict>
 			<key>orderHint</key>
-			<integer>0</integer>
+			<integer>1</integer>
 		</dict>
 	</dict>
 </dict>

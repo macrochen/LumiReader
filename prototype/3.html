@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LumiRead - AI对话</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f4f8;
+        }
+        .ipad-mockup {
+            width: 768px;
+            height: 1024px;
+            margin: 40px auto;
+            border-radius: 36px;
+            box-shadow: 0 20px 60px -10px rgba(0, 0, 0, 0.3), 0 0 10px rgba(0,0,0,0.1) inset;
+            background: #fff;
+            padding: 18px;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        .ipad-screen {
+            background: linear-gradient(135deg, #e0fef2 0%, #ccefe7 100%); /*清新柔和的渐变*/
+            flex-grow: 1;
+            border-radius: 18px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+        .status-bar {
+            height: 30px;
+            background-color: transparent;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 15px;
+            font-size: 12px;
+            color: #4a5568;
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 10;
+        }
+        .main-content {
+            padding-top: 30px;
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .title-bar {
+            height: 56px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 16px;
+            background-color: transparent;
+            border-bottom: 1px solid rgba(0,0,0,0.05);
+            position: relative;
+        }
+        .title-bar .back-button {
+            position: absolute;
+            left: 16px;
+        }
+        .tab-bar {
+            height: 60px;
+            background-color: #ffffff;
+            border-top: 1px solid rgba(0,0,0,0.07);
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
+            opacity: 1;
+        }
+        .tab-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #718096;
+            font-size: 10px;
+            flex-grow: 1;
+            padding: 8px 0;
+        }
+        .tab-item.active {
+            color: #3b82f6;
+        }
+        .tab-item svg {
+            width: 24px;
+            height: 24px;
+            margin-bottom: 2px;
+        }
+        .chat-bubble {
+            max-width: 75%;
+            padding: 10px 14px;
+            border-radius: 16px;
+            margin-bottom: 8px;
+            font-size: 0.8rem;
+            line-height: 1.5;
+        }
+        .user-bubble {
+            background-color: #3b82f6; /* 品牌色 */
+            color: white;
+            align-self: flex-end;
+            border-bottom-right-radius: 4px;
+        }
+        .ai-bubble {
+            background-color: rgba(255,255,255,0.9);
+            color: #374151;
+            align-self: flex-start;
+            border-bottom-left-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+        .preset-prompt-tag {
+            background-color: rgba(255,255,255,0.6);
+            backdrop-filter: blur(5px);
+            border: 1px solid rgba(0,0,0,0.05);
+        }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); border-radius: 3px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.3); }
+    </style>
+</head>
+<body>
+    <div class="ipad-mockup">
+        <div class="ipad-screen">
+            <div class="status-bar">
+                <span>9:43 AM</span>
+                <div>
+                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 inline-block" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.79 4 4 0 .863-.29 1.66-.777 2.28M12 12H3.25M15 12H20.75M12 12V3.25M12 12V20.75" /></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 inline-block" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                    <span>100%</span>
+                </div>
+            </div>
+
+            <div class="main-content flex flex-col">
+                <div class="title-bar">
+                     <!-- <button class="back-button p-2 rounded-full hover:bg-gray-200/70">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
+                        </svg>
+                    </button> -->
+                    <h1 class="text-lg font-medium text-gray-700 truncate px-4">对话: 优雅的清新主义美学...</h1>
+                </div>
+
+                <div class="flex-grow p-4 space-y-3 overflow-y-auto custom-scrollbar flex flex-col">
+                    <div class="chat-bubble ai-bubble">
+                        你好！关于“优雅的清新主义美学与功能的完美平衡探索”这篇文章，你有什么具体想了解的吗？例如，你可以问我它的核心观点、关键细节，或者让我针对某个方面进行更深入的解读。
+                    </div>
+                    <div class="chat-bubble user-bubble">
+                        这篇文章的主要论点是什么？请用一句话概括。
+                    </div>
+                     <div class="chat-bubble ai-bubble">
+                        当然，这篇文章的主要论点是：在产品设计中，清新主义美学不仅仅是视觉上的追求，更是实现功能易用性和提升用户体验的关键途径，需要设计师在留白、色彩、排版等多个维度上找到美感与实用性的最佳平衡点。
+                    </div>
+                     <!-- 
+                    <div class="flex-grow flex flex-col items-center justify-center text-center p-8">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1">
+                           <path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                        </svg>
+                        <h3 class="text-md font-medium text-gray-700">开始对话</h3>
+                        <p class="mt-1 text-xs text-gray-500">请从文章列表选择一篇文章开始对话，<br>或从内容总结页选择某篇总结发起对话。</p>
+                    </div>
+                    -->
+                </div>
+                
+                <div class="p-3 border-t border-gray-200 bg-white/70 backdrop-blur-sm">
+                    <div class="mb-2.5 overflow-x-auto pb-1 custom-scrollbar">
+                        <div class="flex space-x-2 whitespace-nowrap">
+                            <label class="flex items-center space-x-1.5 px-2.5 py-1 preset-prompt-tag rounded-full text-xs text-gray-700 cursor-pointer hover:bg-gray-200/70 transition-colors">
+                                <input type="checkbox" class="form-checkbox h-3.5 w-3.5 text-blue-500 rounded-sm border-gray-300 focus:ring-blue-400">
+                                <span>全文总结</span>
+                            </label>
+                            <label class="flex items-center space-x-1.5 px-2.5 py-1 preset-prompt-tag rounded-full text-xs text-gray-700 cursor-pointer hover:bg-gray-200/70 transition-colors">
+                                <input type="checkbox" class="form-checkbox h-3.5 w-3.5 text-blue-500 rounded-sm border-gray-300 focus:ring-blue-400">
+                                <span>批判性思考</span>
+                            </label>
+                            <label class="flex items-center space-x-1.5 px-2.5 py-1 preset-prompt-tag rounded-full text-xs text-gray-700 cursor-pointer hover:bg-gray-200/70 transition-colors">
+                                <input type="checkbox" class="form-checkbox h-3.5 w-3.5 text-blue-500 rounded-sm border-gray-300 focus:ring-blue-400" checked>
+                                <span>列出案例</span>
+                            </label>
+                             <label class="flex items-center space-x-1.5 px-2.5 py-1 preset-prompt-tag rounded-full text-xs text-gray-700 cursor-pointer hover:bg-gray-200/70 transition-colors">
+                                <input type="checkbox" class="form-checkbox h-3.5 w-3.5 text-blue-500 rounded-sm border-gray-300 focus:ring-blue-400">
+                                <span>新颖见解</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="flex items-end space-x-2">
+                        <textarea rows="1" class="flex-grow p-2.5 text-sm border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-400 focus:border-blue-400 resize-none custom-scrollbar" placeholder="输入您的问题..."></textarea>
+                        <button class="p-2.5 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-colors shadow-md">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 16.571V11a1 1 0 112 0v5.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tab-bar">
+                <div class="tab-item">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z" /></svg>
+                    <span>文章列表</span>
+                </div>
+                <div class="tab-item">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18V7.875c0-.621.504-1.125 1.125-1.125H6.75m3-3h3.375c.621 0 1.125.504 1.125 1.125V7.5h-5.625V4.875c0-.621.504-1.125 1.125-1.125z" /></svg>
+                    <span>内容总结</span>
+                </div>
+                <div class="tab-item active">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-3.86 8.25-8.625 8.25S3.75 16.556 3.75 12s3.86-8.25 8.625-8.25S21 7.444 21 12z" /></svg>
+                    <span>AI对话</span>
+                </div>
+                <div class="tab-item">
+                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-1.007 1.11-.952l2.176.435c.58.115 1.007.632 1.007 1.218V6.75a2.25 2.25 0 01-2.25 2.25H6.75a2.25 2.25 0 01-2.25-2.25V6.75c0-.631.425-1.162.996-1.235l2.176-.434zM6.75 12.75V15A2.25 2.25 0 009 17.25h6A2.25 2.25 0 0017.25 15v-2.25a2.25 2.25 0 00-2.25-2.25H9a2.25 2.25 0 00-2.25 2.25z" /></svg>
+                    <span>系统设置</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+        // 简单的textarea自适应高度
+        const textarea = document.querySelector('textarea');
+        if (textarea) {
+            textarea.addEventListener('input', () => {
+                textarea.style.height = 'auto';
+                textarea.style.height = textarea.scrollHeight + 'px';
+            });
+        }
+    </script>
+</body>
+</html>

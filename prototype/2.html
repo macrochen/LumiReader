@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LumiRead - 内容总结</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f4f8;
+        }
+        .ipad-mockup {
+            width: 768px;
+            height: 1024px;
+            margin: 40px auto;
+            border-radius: 36px;
+            box-shadow: 0 20px 60px -10px rgba(0, 0, 0, 0.3), 0 0 10px rgba(0,0,0,0.1) inset;
+            background: #fff;
+            padding: 18px;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        .ipad-screen {
+            background: linear-gradient(135deg, #e0f2fe 0%, #cce7ff 100%); /*清新柔和的渐变*/
+            flex-grow: 1;
+            border-radius: 18px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+        .status-bar {
+            height: 30px;
+            background-color: transparent;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 15px;
+            font-size: 12px;
+            color: #4a5568;
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 10;
+        }
+        .main-content {
+            padding-top: 30px;
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .title-bar {
+            height: 56px;
+            display: flex;
+            align-items: center;
+            justify-content: center; /* 标题居中 */
+            padding: 0 16px;
+            background-color: transparent;
+            border-bottom: 1px solid rgba(0,0,0,0.05);
+            position: relative;
+        }
+         .title-bar .back-button {
+            position: absolute;
+            left: 16px;
+        }
+        .tab-bar {
+            height: 60px;
+            background-color: #ffffff;
+            border-top: 1px solid rgba(0,0,0,0.07);
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
+            opacity: 1;
+        }
+        .tab-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #718096;
+            font-size: 10px;
+            flex-grow: 1;
+            padding: 8px 0;
+        }
+        .tab-item.active {
+            color: #3b82f6;
+        }
+        .tab-item svg {
+            width: 24px;
+            height: 24px;
+            margin-bottom: 2px;
+        }
+        .summary-card {
+            background-color: rgba(255,255,255,0.85);
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+            margin-bottom: 16px;
+            padding: 16px;
+        }
+        .summary-card h4 {
+            font-size: 0.8rem; /* 略小一点的标题 */
+            color: #1e3a8a; /* 深蓝 */
+        }
+        .summary-card p {
+            font-size: 0.75rem; /* 略小一点的正文 */
+            line-height: 1.6;
+        }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); border-radius: 3px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.3); }
+    </style>
+</head>
+<body>
+    <div class="ipad-mockup">
+        <div class="ipad-screen">
+            <div class="status-bar">
+                <span>9:42 AM</span>
+                <div>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 inline-block" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.79 4 4 0 .863-.29 1.66-.777 2.28M12 12H3.25M15 12H20.75M12 12V3.25M12 12V20.75" /></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 inline-block" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                    <span>100%</span>
+                </div>
+            </div>
+
+            <div class="main-content">
+                <div class="title-bar">
+                    <!-- <button class="back-button p-2 rounded-full hover:bg-gray-200/70">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
+                        </svg>
+                    </button> -->
+                    <h1 class="text-xl font-semibold text-gray-700">内容总结</h1>
+                </div>
+
+                <div class="flex-grow p-4 overflow-y-auto custom-scrollbar space-y-4">
+                    <p class="text-xs text-gray-500 mb-2">针对2篇文章的批量总结 (2025-05-26 10:15)</p>
+                    
+                    <div class="summary-card">
+                        <div class="flex justify-between items-center mb-2">
+                            <a href="#" class="text-sm font-semibold text-blue-600 hover:text-blue-700 hover:underline transition-colors">
+                                [1] 优雅的清新主义美学与功能的完美平衡探索
+                            </a>
+                            <button class="px-2.5 py-1 text-xs font-medium text-white bg-gradient-to-r from-purple-500 to-pink-500 rounded-full hover:opacity-90 transition-opacity shadow-sm">
+                                对话
+                            </button>
+                        </div>
+                        <div class="space-y-1.5 text-gray-600">
+                            <h4 class="font-semibold">主要内容:</h4>
+                            <p>本文深入探讨了如何在产品设计中实现清新主义美学与实用功能的和谐统一，分析了留白、色彩、排版等元素的重要性。</p>
+                            <h4 class="font-semibold mt-1">核心观点:</h4>
+                            <p>设计不应仅仅追求视觉上的美感，更要服务于用户目标，清新主义是实现这一目标的有效途径。</p>
+                            <h4 class="font-semibold mt-1">关键细节:</h4>
+                            <ul class="list-disc list-inside pl-1 space-y-0.5">
+                                <li>留白设计能够引导用户视线，降低认知负荷。</li>
+                                <li>柔和的渐变配色能营造舒适的视觉体验。</li>
+                                <li>模块化卡片布局有助于信息层级呈现。</li>
+                            </ul>
+                            <h4 class="font-semibold mt-1">深度解读:</h4>
+                            <p>清新主义并非极简，而是对元素恰到好处的运用，旨在创造既美观又高效的用户体验，这对于提升用户满意度和产品竞争力至关重要。</p>
+                        </div>
+                    </div>
+
+                    <div class="summary-card">
+                        <div class="flex justify-between items-center mb-2">
+                             <a href="#" class="text-sm font-semibold text-blue-600 hover:text-blue-700 hover:underline transition-colors">
+                                [2] 信息层级通过微妙的阴影过渡与模块化卡片布局清晰呈现
+                            </a>
+                            <button class="px-2.5 py-1 text-xs font-medium text-white bg-gradient-to-r from-purple-500 to-pink-500 rounded-full hover:opacity-90 transition-opacity shadow-sm">
+                                对话
+                            </button>
+                        </div>
+                        <div class="space-y-1.5 text-gray-600">
+                            <h4 class="font-semibold">主要内容:</h4>
+                            <p>文章阐述了如何运用阴影和卡片式布局来构建清晰的信息层级，提升界面的可读性和导航效率。</p>
+                            <h4 class="font-semibold mt-1">核心观点:</h4>
+                            <p>有效的视觉层级是用户快速理解和操作界面的关键，阴影和卡片是实现这一目标的有力工具。</p>
+                             <h4 class="font-semibold mt-1">关键细节:</h4>
+                            <ul class="list-disc list-inside pl-1 space-y-0.5">
+                                <li>微妙的阴影可以区分元素，增加深度感。</li>
+                                <li>卡片将相关信息聚合，形成独立的视觉单元。</li>
+                                <li>一致的间距和对齐有助于构建秩序感。</li>
+                            </ul>
+                            <h4 class="font-semibold mt-1">深度解读:</h4>
+                            <p>通过精心设计的阴影和卡片，可以将复杂信息组织得井然有序，即使用户首次接触也能快速上手，这体现了以用户为中心的设计理念。</p>
+                        </div>
+                    </div>
+                     <!-- 
+                    <div class="text-center py-10">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        <h3 class="mt-2 text-sm font-medium text-gray-700">暂无内容总结</h3>
+                        <p class="mt-1 text-xs text-gray-500">请先到文章列表选择文章进行批量总结。</p>
+                    </div>
+                    -->
+                </div>
+            </div>
+
+            <div class="tab-bar">
+                <div class="tab-item">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z" /></svg>
+                    <span>文章列表</span>
+                </div>
+                <div class="tab-item active">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18V7.875c0-.621.504-1.125 1.125-1.125H6.75m3-3h3.375c.621 0 1.125.504 1.125 1.125V7.5h-5.625V4.875c0-.621.504-1.125 1.125-1.125z" /></svg>
+                    <span>内容总结</span>
+                </div>
+                <div class="tab-item">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-3.86 8.25-8.625 8.25S3.75 16.556 3.75 12s3.86-8.25 8.625-8.25S21 7.444 21 12z" /></svg>
+                    <span>AI对话</span>
+                </div>
+                <div class="tab-item">
+                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-1.007 1.11-.952l2.176.435c.58.115 1.007.632 1.007 1.218V6.75a2.25 2.25 0 01-2.25 2.25H6.75a2.25 2.25 0 01-2.25-2.25V6.75c0-.631.425-1.162.996-1.235l2.176-.434zM6.75 12.75V15A2.25 2.25 0 009 17.25h6A2.25 2.25 0 0017.25 15v-2.25a2.25 2.25 0 00-2.25-2.25H9a2.25 2.25 0 00-2.25 2.25z" /></svg>
+                    <span>系统设置</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
