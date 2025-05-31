@@ -1,4 +1,14 @@
 import SwiftUI
+import GoogleAPIClientForREST_Drive
+import GoogleSignIn
+import GTMSessionFetcher
+
+extension GIDGoogleUser {
+    var fetcherAuthorizer: GTMFetcherAuthorizationProtocol? {
+        guard let accessToken = self.accessToken else { return nil }
+        return GTMSessionFetcherAuthorization(authorizer: self)
+    }
+}
 
 struct GoogleDriveFilePicker: View {
     @StateObject private var driveService = GoogleDriveService.shared

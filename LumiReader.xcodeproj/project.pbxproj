@@ -6,18 +6,26 @@
 	objectVersion = 77;
 	objects = {
 
-/* Begin PBXBuildFile section */
-		D21C14CF2DEAE2F900999A3F /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = D21C14CE2DEAE2F900999A3F /* GoogleSignIn */; };
-		D21C14D12DEAE2F900999A3F /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = D21C14D02DEAE2F900999A3F /* GoogleSignInSwift */; };
-/* End PBXBuildFile section */
-
 /* Begin PBXFileReference section */
 		D2909F252DEAB0F700832E4F /* LumiReader.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LumiReader.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		D21C14D32DEAF04900999A3F /* Exceptions for "LumiReader" folder in "LumiReader" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = D2909F242DEAB0F700832E4F /* LumiReader */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		D2909F272DEAB0F700832E4F /* LumiReader */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				D21C14D32DEAF04900999A3F /* Exceptions for "LumiReader" folder in "LumiReader" target */,
+			);
 			path = LumiReader;
 			sourceTree = "<group>";
 		};
@@ -28,8 +36,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				D21C14CF2DEAE2F900999A3F /* GoogleSignIn in Frameworks */,
-				D21C14D12DEAE2F900999A3F /* GoogleSignInSwift in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -72,8 +78,6 @@
 			);
 			name = LumiReader;
 			packageProductDependencies = (
-				D21C14CE2DEAE2F900999A3F /* GoogleSignIn */,
-				D21C14D02DEAE2F900999A3F /* GoogleSignInSwift */,
 			);
 			productName = LumiReader;
 			productReference = D2909F252DEAB0F700832E4F /* LumiReader.app */;
@@ -104,7 +108,6 @@
 			mainGroup = D2909F1C2DEAB0F600832E4F;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				D21C14CD2DEAE2F900999A3F /* XCLocalSwiftPackageReference "../GoogleSignIn-iOS" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = D2909F262DEAB0F700832E4F /* Products */;
@@ -283,7 +286,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 2;
 			};
 			name = Debug;
 		};
@@ -312,7 +315,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 2;
 			};
 			name = Release;
 		};
@@ -338,24 +341,6 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
-/* Begin XCLocalSwiftPackageReference section */
-		D21C14CD2DEAE2F900999A3F /* XCLocalSwiftPackageReference "../GoogleSignIn-iOS" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = "../GoogleSignIn-iOS";
-		};
-/* End XCLocalSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		D21C14CE2DEAE2F900999A3F /* GoogleSignIn */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = GoogleSignIn;
-		};
-		D21C14D02DEAE2F900999A3F /* GoogleSignInSwift */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = GoogleSignInSwift;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = D2909F1D2DEAB0F600832E4F /* Project object */;
 }
