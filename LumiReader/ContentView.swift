@@ -10,22 +10,23 @@ import CoreData
 
 struct ContentView: View {
     @State private var selectedTab: TabType = .articleList
+    @State private var selectedArticleForChat: Article? = nil
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            ArticleListView(selectedTab: $selectedTab)
+            ArticleListView(selectedTab: $selectedTab, selectedArticleForChat: $selectedArticleForChat)
                 .tabItem {
                     Label("文章列表", systemImage: "list.bullet.rectangle")
                 }
                 .tag(TabType.articleList)
             
-            SummaryView()
+            SummaryView(selectedTab: $selectedTab, selectedArticleForChat: $selectedArticleForChat)
                 .tabItem {
                     Label("内容总结", systemImage: "doc.text.magnifyingglass")
                 }
                 .tag(TabType.summary)
             
-            AIChatView(article: nil)
+            AIChatView(article: $selectedArticleForChat)
                 .tabItem {
                     Label("AI对话", systemImage: "bubble.left.and.bubble.right")
                 }

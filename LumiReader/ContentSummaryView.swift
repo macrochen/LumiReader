@@ -160,6 +160,7 @@ struct ContentSummaryView: View {
                 CustomTabBar(selected: .summary)
                     .padding(.bottom, 6)
             }
+            .padding(.top)
         }
     }
 }

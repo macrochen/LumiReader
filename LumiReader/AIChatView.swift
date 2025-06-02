@@ -154,8 +154,8 @@ struct AIChatView: View {
     @Environment(\.managedObjectContext) private var viewContext
     @Environment(\.dismiss) var dismiss
     
-    // Make article optional
-    let article: Article?
+    // Make article optional and a Binding
+    @Binding var article: Article?
     
     // Fetch all articles
     @FetchRequest(
@@ -258,7 +258,14 @@ struct AIChatView: View {
             
             primaryContentView
         }
-        .onAppear(perform: loadPrompts)
+        .onAppear {
+            print("AIChatView appeared. Article: \(article?.title ?? "nil")")
+            loadPrompts() // loadPrompts 已经在这里
+        }
+        .onDisappear {
+            print("AIChatView disappeared. Article: \(article?.title ?? "nil")")
+        }
+        // .onAppear(perform: loadPrompts)
         .alert("错误", isPresented: $showingError, presenting: errorMessage) { _ in
             Button("确定", role: .cancel) {}
         } message: { message in
@@ -448,14 +455,18 @@ struct AIChatView: View {
                     .font(.system(size: 15, weight: .medium))
                     .foregroundColor(.gray)
                     .padding(.horizontal, 20)
-                    .padding(.vertical, 4)
+                    .padding(.vertical, 8)
             } else {
                 Picker("选择文章", selection: $selectedArticle) {
                     articlePickerContent
                 }
                 .pickerStyle(MenuPickerStyle())
-                .padding(.horizontal, 20)
-                .padding(.vertical, 4)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(Color.white.opacity(0.8))
+                .cornerRadius(8)
+                .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
+                .padding(.horizontal, 4)
             }
             
             chatContentListView
@@ -465,6 +476,7 @@ struct AIChatView: View {
             
             inputBarView
         }
+        .padding(.bottom, 50) // Add padding at the bottom to clear the tab bar area
     }
 }
 
@@ -567,11 +579,11 @@ struct AIChatView_Previews: PreviewProvider {
         article.content = "这是示例文章的内容"
         return Group {
             // Preview with article
-            AIChatView(article: article)
+            AIChatView(article: .constant(article))
                 .environment(\.managedObjectContext, context)
             
             // Preview without article
-            AIChatView(article: nil)
+            AIChatView(article: .constant(nil))
                 .environment(\.managedObjectContext, context)
         }
     }

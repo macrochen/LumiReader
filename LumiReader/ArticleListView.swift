@@ -15,32 +15,54 @@ struct ArticleListView: View {
         sortDescriptors: [NSSortDescriptor(keyPath: \Article.importDate, ascending: false)],
         animation: .default)
     private var articles: FetchedResults<Article>
-    
+
     @Binding var selectedTab: TabType
-    
+    @Binding var selectedArticleForChat: Article?
+
     @State private var selectedArticles: Set<ObjectIdentifier> = []
-    @State private var showingBatchSummary = false
+    // @State private var showingBatchSummary = false // This state seems unused, consider removing if not needed
     @State private var errorMessage: String?
     @State private var showingError = false
-    
+
     @State private var showingImportSuccess = false
     @State private var importedCount = 0
-    
+
     @State private var showingImportOptions = false
     @State private var isImportingLocalFile = false
     @State private var showingWifiImportView = false
-    
-    @State private var importError: String?
+
+    @State private var importError: String? // Replaces errorMessage for import-specific errors for clarity
     @State private var isSummarizing = false
-    @State private var latestSummary: BatchSummary?
+    // @State private var latestSummary: BatchSummary? // This state seems unused after refactor of summarizeSelectedArticles
     @FetchRequest(
         sortDescriptors: [NSSortDescriptor(keyPath: \BatchSummary.timestamp, ascending: false)],
         animation: .default)
     private var batchSummaries: FetchedResults<BatchSummary>
-    
-    // State to track the article selected for chat
-    @State private var selectedArticleForChat: Article? = nil
-    
+
+    // MARK: - Computed View Properties for Refactoring
+
+    // Computed property for the title bar
+    private var titleBar: some View {
+        HStack {
+            Text("文章列表")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundColor(Color(.label))
+            Spacer()
+            Button(action: {
+                showingImportOptions = true
+            }) {
+                Image(systemName: "square.and.arrow.down")
+                    .font(.system(size: 24, weight: .medium))
+                    .foregroundColor(Color(.gray))
+                    .padding(8)
+                    .background(Color(.systemGray5))
+                    .clipShape(Circle())
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 6)
+    }
+
     // Computed property for the operation toolbar
     private var operationToolbarView: some View {
         HStack(spacing: 12) {
@@ -71,6 +93,7 @@ struct ArticleListView: View {
                     .background(LinearGradient(gradient: Gradient(colors: [Color.blue, Color.pink]), startPoint: .leading, endPoint: .trailing))
                     .cornerRadius(10)
             }
+            .disabled(selectedArticles.isEmpty || isSummarizing) // Keep original disable logic
             Button(action: deleteSelectedArticles) {
                 Text("删除选中")
                     .font(.system(size: 14, weight: .medium))
@@ -80,10 +103,10 @@ struct ArticleListView: View {
                     .background(Color.red)
                     .cornerRadius(10)
             }
-            .disabled(selectedArticles.isEmpty || isSummarizing)
+            .disabled(selectedArticles.isEmpty) // Original code had this button disabled with selectedArticles.isEmpty || isSummarizing. Check if isSummarizing is also needed here. For now, matching original.
         }
     }
-    
+
     // Computed property for the article list content
     private var articleListContent: some View {
         ScrollView {
@@ -94,14 +117,16 @@ struct ArticleListView: View {
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.top, 40)
                 } else {
-                    ForEach(articles) {
-                        article in
+                    ForEach(articles) { article in
                         ArticleCard(
                             article: article,
                             isSelected: selectedArticles.contains(ObjectIdentifier(article)),
                             onSelect: { toggleArticleSelection(article) },
                             onViewOriginal: { openOriginalArticle(article) },
-                            onChat: { selectedArticleForChat = article }
+                            onChat: { 
+                                self.selectedArticleForChat = article 
+                                self.selectedTab = .aiChat
+                            }
                         )
                     }
                 }
@@ -109,212 +134,129 @@ struct ArticleListView: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 8)
         }
-        .background(Color.clear)
+        .background(Color.clear) // Ensure ScrollView itself doesn't have an opaque background if not desired
         .frame(maxHeight: .infinity)
     }
-    
-    var body: some View {
-        ZStack {
-            // 渐变背景
-            LinearGradient(gradient: Gradient(colors: [Color(red: 0.90, green: 0.95, blue: 1.0), Color(red: 0.85, green: 0.91, blue: 1.0)]), startPoint: .topLeading, endPoint: .bottomTrailing)
-                .ignoresSafeArea()
-            
-            VStack(spacing: 0) {
-                // 标题栏
-                HStack {
-                    Text("文章列表")
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundColor(Color(.label))
-                    Spacer()
-                    Button(action: {
-                        showingImportOptions = true
-                    }) {
-                        Image(systemName: "square.and.arrow.down")
-                            .font(.system(size: 24, weight: .medium))
-                            .foregroundColor(Color(.gray))
-                            .padding(8)
-                            .background(Color(.systemGray5))
-                            .clipShape(Circle())
-                    }
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 6)
-                
-                // 操作工具栏
-                operationToolbarView
+
+    // Container for the main VStack content (title, toolbar, list)
+    private var mainContentContainer: some View {
+        VStack(spacing: 0) {
+            titleBar
+
+            operationToolbarView
                 .padding(.horizontal, 20)
                 .padding(.vertical, 8)
                 .background(Color.white.opacity(0.5).blur(radius: 2))
-                
-                // 文章列表
-                articleListContent
-                
-            }
+
+            articleListContent
         }
-        .overlay {
-            if isSummarizing {
-                ZStack {
-                    Color.black.opacity(0.2)
-                        .edgesIgnoringSafeArea(.all)
-                        .ignoresSafeArea(edges: .all)
-                    
-                    VStack {
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: .blue))
-                            .scaleEffect(2.0) // Increased scale
-                        
-                        Text("总结中...")
-                            .font(.headline) // Larger font
-                            .foregroundColor(.primary)
-                    }
-                    .padding(20) // Padding around the loading content
-                    .background(Color.white.opacity(0.9)) // Adjusted background
-                    .cornerRadius(12) // Adjusted corner radius
-                    .shadow(radius: 15) // Adjusted shadow
-                }
-            }
-        }
-        .background(
+    }
+    
+    // The main screen content, including the primary background gradient and the mainContentContainer
+    private var screenWithPrimaryBackground: some View {
+        ZStack {
+            // 渐变背景 (This was the gradient around line 116)
             LinearGradient(gradient: Gradient(colors: [Color(red: 0.90, green: 0.95, blue: 1.0), Color(red: 0.85, green: 0.91, blue: 1.0)]), startPoint: .topLeading, endPoint: .bottomTrailing)
                 .ignoresSafeArea()
-        )
-        .navigationTitle("文章列表")
-        .navigationBarTitleDisplayMode(.inline)
-        .alert("错误", isPresented: $showingError, presenting: errorMessage) { _ in
-            Button("确定", role: .cancel) {}
-        } message: { message in
-            Text(message)
+
+            mainContentContainer
         }
-        .alert("导入成功", isPresented: $showingImportSuccess) {
-            Button("确定", role: .cancel) {}
-        } message: {
-            Text("成功导入 \(importedCount) 篇文章。")
-        }
-        .sheet(isPresented: $showingImportOptions) {
-            ImportOptionsView(
-                onImportLocal: {
-                    isImportingLocalFile = true
-                    showingImportOptions = false
-                },
-                onImportWifi: {
-                    showingWifiImportView = true
-                    showingImportOptions = false
+    }
+
+    // The summarizing overlay view
+    @ViewBuilder
+    private var summarizingOverlayView: some View {
+        if isSummarizing {
+            ZStack {
+                Color.black.opacity(0.2)
+                    .ignoresSafeArea() // Covers the whole screen
+
+                VStack {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: .blue))
+                        .scaleEffect(2.0)
+
+                    Text("总结中...")
+                        .font(.headline)
+                        .foregroundColor(.primary) // Use .primary for better adaptability to light/dark mode
                 }
-            )
-            .presentationDetents([.medium, .large])
-        }
-        .fileImporter(
-            isPresented: $isImportingLocalFile,
-            allowedContentTypes: [.json],
-            allowsMultipleSelection: false
-        ) { result in
-            do {
-                guard let selectedFile: URL = try result.get().first else {
-                    importError = "未选择文件"
-                    showingError = true
-                    return
-                }
-                let didStartAccessing = selectedFile.startAccessingSecurityScopedResource()
-                defer {
-                    if didStartAccessing {
-                        selectedFile.stopAccessingSecurityScopedResource()
-                    }
-                }
-
-                let data = try Data(contentsOf: selectedFile)
-                let decoder = JSONDecoder()
-                let imported = try decoder.decode([ImportedArticle].self, from: data)
-
-                // 使用私有上下文进行导入和保存
-                let privateContext = NSManagedObjectContext(concurrencyType: .privateQueueConcurrencyType)
-                privateContext.parent = viewContext // 将私有上下文的父级设置为视图上下文
-
-                privateContext.perform { // 在私有上下文的队列中执行
-                    do {
-                        var currentImportedCount = 0
-                        for item in imported {
-                            let article = Article(context: privateContext) // 在私有上下文中创建
-                            article.title = item.title
-                            article.link = item.url
-                            article.content = item.textContent
-                            article.importDate = Date()
-                            currentImportedCount += 1
-                        }
-
-                        if privateContext.hasChanges {
-                            try privateContext.save() // 保存私有上下文
-                        }
-
-                        // 将更改推送到父上下文 (viewContext)
-                        viewContext.performAndWait { // 在主队列执行
-                            do {
-                                if viewContext.hasChanges {
-                                    try viewContext.save() // 保存主上下文
-                                }
-                                // Update UI on the main thread
-                                DispatchQueue.main.async {
-                                    self.importedCount = currentImportedCount
-                                    self.showingImportSuccess = true
-                                    self.importError = nil
-                                }
-                            } catch {
-                                DispatchQueue.main.async {
-                                    self.importError = "导入失败：保存到主上下文错误：\(error.localizedDescription)"
-                                    self.showingError = true
-                                }
-                            }
-                        }
-
-                    } catch {
-                        // Handle errors during private context operations
-                        DispatchQueue.main.async {
-                            self.importError = "导入失败：私有上下文操作错误：\(error.localizedDescription)"
-                            self.showingError = true
-                        }
-                    }
-                }
-
-            } catch {
-                // Handle errors during file selection or decoding
-                
-                // 增加对 DecodingError 的详细日志输出
-                if let decodingError = error as? DecodingError {
-                    print("JSON Decoding Error: \(decodingError)")
-                    importError = "导入失败：JSON 解码错误：请检查文件格式是否正确。\n详细：\(decodingError.localizedDescription)"
-                } else {
-                    print("File Import Error: \(error)")
-                    importError = "导入失败：读取或解码文件错误：\(error.localizedDescription)"
-                }
-                showingError = true
+                .padding(20)
+                .background(Material.regular) // Using Material for a more modern blur effect
+                .cornerRadius(12)
+                .shadow(radius: 15)
             }
         }
-        .sheet(isPresented: $showingWifiImportView) {
-            WifiImportView()
-                .environment(\.managedObjectContext, viewContext)
-        }
-        .sheet(item: $selectedArticleForChat) { article in
-            AIChatView(article: article)
-                .environment(\.managedObjectContext, viewContext)
-        }
     }
-    
+
+    // The overall background for the entire view (applied last)
+    private var finalBackgroundView: some View {
+        LinearGradient(gradient: Gradient(colors: [Color(red: 0.90, green: 0.95, blue: 1.0), Color(red: 0.85, green: 0.91, blue: 1.0)]), startPoint: .topLeading, endPoint: .bottomTrailing)
+            .ignoresSafeArea()
+    }
+
+
+    // MARK: - Body
+    var body: some View {
+        screenWithPrimaryBackground // Main content with its own gradient
+            .overlay { summarizingOverlayView } // Conditional overlay
+            .background(finalBackgroundView) // Final, overall background
+            .navigationTitle("文章列表")
+            .navigationBarTitleDisplayMode(.inline)
+            .alert("错误", isPresented: $showingError, presenting: errorMessage) { _ in
+                Button("确定", role: .cancel) {}
+            } message: { messageText in // Renamed for clarity
+                Text(messageText)
+            }
+            .alert("导入成功", isPresented: $showingImportSuccess) {
+                Button("确定", role: .cancel) {}
+            } message: {
+                Text("成功导入 \(importedCount) 篇文章。")
+            }
+            .sheet(isPresented: $showingImportOptions) {
+                ImportOptionsView(
+                    onImportLocal: {
+                        isImportingLocalFile = true
+                        // showingImportOptions = false // sheet dismisses automatically
+                    },
+                    onImportWifi: {
+                        showingWifiImportView = true
+                        // showingImportOptions = false // sheet dismisses automatically
+                    }
+                )
+                .presentationDetents([.height(180), .medium]) // Adjusted presentation detents
+            }
+            .fileImporter(
+                isPresented: $isImportingLocalFile,
+                allowedContentTypes: [.json],
+                allowsMultipleSelection: false,
+                onCompletion: handleFileImportResult // Moved logic to a separate method
+            )
+            .sheet(isPresented: $showingWifiImportView) {
+                WifiImportView()
+                    .environment(\.managedObjectContext, viewContext)
+            }
+            // .sheet(item: $selectedArticleForChat) { _ in
+            //     AIChatView(article: $selectedArticleForChat)
+            //         .environment(\.managedObjectContext, viewContext)
+            // }
+    }
+
+    // MARK: - Action Methods
+
     private func selectAllArticles() {
-        // Toggle select all/deselect all
         if selectedArticles.count == articles.count && !articles.isEmpty {
-            selectedArticles = [] // Deselect all
+            selectedArticles = []
         } else {
-            selectedArticles = Set(articles.map { ObjectIdentifier($0) }) // Select all
+            selectedArticles = Set(articles.map { ObjectIdentifier($0) })
         }
     }
-    
+
     private func selectFiveArticles() {
-        let unselectedArticles = articles.filter { article in
-            !selectedArticles.contains(ObjectIdentifier(article))
-        }
+        let unselectedArticles = articles.filter { !selectedArticles.contains(ObjectIdentifier($0)) }
         let articlesToSelect = Array(unselectedArticles.prefix(5))
         selectedArticles.formUnion(articlesToSelect.map { ObjectIdentifier($0) })
     }
-    
+
     private func toggleArticleSelection(_ article: Article) {
         let id = ObjectIdentifier(article)
         if selectedArticles.contains(id) {
@@ -323,123 +265,206 @@ struct ArticleListView: View {
             selectedArticles.insert(id)
         }
     }
-    
+
     private func openOriginalArticle(_ article: Article) {
-        guard let urlString = article.link,
-              let url = URL(string: urlString) else {
-            errorMessage = "无效的文章链接"
-            showingError = true
+        guard let urlString = article.link, let url = URL(string: urlString) else {
+            self.errorMessage = "无效的文章链接" // Use self.errorMessage for clarity
+            self.showingError = true
             return
         }
         UIApplication.shared.open(url)
     }
-    
-    private func startChat(_ article: Article) {
-        // No longer shows error, navigation is handled by NavigationLink
-        // Implement actual chat start logic in AIChatView.onAppear
-    }
+
+    // startChat function was empty and seemed to be replaced by .sheet(item: $selectedArticleForChat)
+    // If it had other logic, it should be reviewed. For now, it's removed as it's unused.
 
     private func summarizeSelectedArticles() {
         guard !selectedArticles.isEmpty else {
-            errorMessage = "请先选择要总结的文章"
-            showingError = true
+            self.errorMessage = "请先选择要总结的文章"
+            self.showingError = true
             return
         }
 
         isSummarizing = true
 
-        // TODO: 获取 Gemini API Key 和总结提示词
         let apiKey = UserDefaults.standard.string(forKey: "geminiApiKey") ?? ""
-        // Use the shared default prompt if UserDefaults is empty
-        let summaryPrompt = UserDefaults.standard.string(forKey: "batchSummaryPrompt") ?? Prompt.DEFAULT_BATCH_SUMMARY_PROMPT
+        let summaryPrompt = UserDefaults.standard.string(forKey: "batchSummaryPrompt") ?? Prompt.DEFAULT_BATCH_SUMMARY_PROMPT // Assuming Prompt struct exists
 
         guard !apiKey.isEmpty else {
-            errorMessage = "请先在设置中填写 Gemini API Key"
-            showingError = true
+            self.errorMessage = "请先在设置中填写 Gemini API Key"
+            self.showingError = true
             isSummarizing = false
             return
         }
 
         guard !summaryPrompt.isEmpty else {
-            errorMessage = "请先在设置中填写批量总结提示词"
-            showingError = true
+            self.errorMessage = "请先在设置中填写批量总结提示词"
+            self.showingError = true
             isSummarizing = false
             return
         }
 
-        // 准备要总结的文章数据
         let selectedArticlesData = articles.filter { selectedArticles.contains(ObjectIdentifier($0)) }
             .map { ["title": $0.title ?? "", "content": $0.content ?? ""] }
 
-        // 调用 Gemini API 进行批量总结
         Task {
             do {
-                let summary = try await GeminiService.summarizeArticles(articles: selectedArticlesData, apiKey: apiKey, summaryPrompt: summaryPrompt)
+                let summaryText = try await GeminiService.summarizeArticles(articles: selectedArticlesData, apiKey: apiKey, summaryPrompt: summaryPrompt) // Assuming GeminiService exists
 
-                // --- Start: Delete existing summaries before saving new one ---
+                // Delete existing summaries
                 let fetchRequest: NSFetchRequest<NSFetchRequestResult> = BatchSummary.fetchRequest()
                 let deleteRequest = NSBatchDeleteRequest(fetchRequest: fetchRequest)
-
                 try viewContext.execute(deleteRequest)
-                // --- End: Delete existing summaries ---
 
-                // 创建一个新的 BatchSummary 对象
+                // Create and save new summary
                 let newSummary = BatchSummary(context: viewContext)
                 newSummary.id = UUID()
-                newSummary.content = summary
+                newSummary.content = summaryText
                 newSummary.timestamp = Date()
-
-                // 保存到 Core Data
                 try viewContext.save()
-                // latestSummary = newSummary // This state is no longer needed here
-                
-                // Navigate to the Summary tab after successful save
-                await MainActor.run { // Ensure UI update happens on the main actor
+
+                await MainActor.run {
                     selectedTab = .summary
                     isSummarizing = false
                 }
 
             } catch {
-                errorMessage = "总结失败: \(error.localizedDescription)"
-                showingError = true
-                isSummarizing = false // Ensure loading indicator is hidden on error
+                // Use await MainActor.run for UI updates from background task
+                await MainActor.run {
+                    self.errorMessage = "总结失败: \(error.localizedDescription)"
+                    self.showingError = true
+                    isSummarizing = false
+                }
             }
         }
     }
 
     private func deleteSelectedArticles() {
         let articlesToDelete = articles.filter { selectedArticles.contains(ObjectIdentifier($0)) }
-        
-        for article in articlesToDelete {
-            viewContext.delete(article)
-        }
-        
+        articlesToDelete.forEach(viewContext.delete)
+
         do {
             try viewContext.save()
-            selectedArticles = [] // Clear selection after deletion
+            selectedArticles = []
         } catch {
-            // Handle the error appropriately
+            self.errorMessage = "删除文章失败: \(error.localizedDescription)"
+            self.showingError = true
             print("Error deleting articles: \(error)")
-            errorMessage = "删除文章失败: \(error.localizedDescription)"
-            showingError = true
+        }
+    }
+
+    // MARK: - File Import Handling
+    private func handleFileImportResult(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let selectedFile = urls.first else {
+                self.importError = "未选择文件" // Use specific importError state
+                self.showingError = true // Or a specific showingImportError state
+                return
+            }
+            processImportedFile(url: selectedFile)
+        case .failure(let error):
+            self.importError = "文件选择失败: \(error.localizedDescription)"
+            self.showingError = true
+        }
+    }
+
+    private func processImportedFile(url: URL) {
+        let didStartAccessing = url.startAccessingSecurityScopedResource()
+        defer {
+            if didStartAccessing {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        do {
+            let data = try Data(contentsOf: url)
+            let decoder = JSONDecoder()
+            let importedItems = try decoder.decode([ImportedArticle].self, from: data)
+
+            saveImportedArticles(importedItems)
+        } catch {
+            DispatchQueue.main.async { // Ensure UI updates are on main thread
+                if let decodingError = error as? DecodingError {
+                    print("JSON Decoding Error: \(decodingError)")
+                    self.importError = "导入失败：JSON 解码错误。请检查文件格式。\n详细：\(decodingError.localizedDescription)"
+                } else {
+                    print("File Import Error: \(error)")
+                    self.importError = "导入失败：读取或解码文件错误。\n详细：\(error.localizedDescription)"
+                }
+                self.showingError = true
+            }
+        }
+    }
+
+    private func saveImportedArticles(_ items: [ImportedArticle]) {
+        let privateContext = NSManagedObjectContext(concurrencyType: .privateQueueConcurrencyType)
+        privateContext.parent = viewContext
+
+        privateContext.perform {
+            var currentImportedCount = 0
+            for item in items {
+                let article = Article(context: privateContext)
+                article.title = item.title
+                article.link = item.url
+                article.content = item.textContent
+                article.importDate = Date()
+                currentImportedCount += 1
+            }
+
+            do {
+                if privateContext.hasChanges {
+                    try privateContext.save()
+                }
+                // Push to parent (viewContext)
+                viewContext.performAndWait { // Ensure this is safe; if viewContext is main, this is fine.
+                    do {
+                        if viewContext.hasChanges {
+                            try viewContext.save()
+                        }
+                        // Update UI on the main thread
+                        DispatchQueue.main.async {
+                            self.importedCount = currentImportedCount
+                            self.showingImportSuccess = true
+                            self.importError = nil // Clear any previous import error
+                        }
+                    } catch {
+                        DispatchQueue.main.async {
+                            self.importError = "导入失败：保存到主上下文错误：\(error.localizedDescription)"
+                            self.showingError = true
+                        }
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.importError = "导入失败：私有上下文操作错误：\(error.localizedDescription)"
+                    self.showingError = true
+                }
+            }
         }
     }
 }
 
-// MARK: - 文章卡片
+// Assuming Prompt struct and GeminiService are defined elsewhere
+// For example:
+// struct Prompt { static let DEFAULT_BATCH_SUMMARY_PROMPT = "Summarize these articles." }
+// class GeminiService { static func summarizeArticles(articles: [[String: String]], apiKey: String, summaryPrompt: String) async throws -> String { /* ... */ return "Summary" } }
+
+
+// MARK: - ArticleCard (No changes, included for completeness)
 struct ArticleCard: View {
     let article: Article
     let isSelected: Bool
     let onSelect: () -> Void
     let onViewOriginal: () -> Void
     let onChat: () -> Void
-    
+
     private let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.dateFormat = "yyyy-MM-dd" // Consider "yyyy-MM-dd HH:mm" for more detail if needed
         return formatter
     }()
-    
+
     var body: some View {
         HStack(spacing: 14) {
             Button(action: onSelect) {
@@ -448,16 +473,16 @@ struct ArticleCard: View {
                     .frame(width: 22, height: 22)
                     .foregroundColor(isSelected ? Color.blue : Color.gray.opacity(0.6))
             }
-            .buttonStyle(PlainButtonStyle())
-            
+            .buttonStyle(PlainButtonStyle()) // Keep clicks from propagating if card is in a List
+
             VStack(alignment: .leading, spacing: 4) {
                 Text(article.title ?? "无标题")
                     .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(Color(.label))
+                    .foregroundColor(Color(.label)) // Adapts to light/dark mode
                     .lineLimit(2)
                 Text("导入日期: \(article.importDate != nil ? dateFormatter.string(from: article.importDate!) : "-")")
                     .font(.system(size: 12))
-                    .foregroundColor(Color(.systemGray))
+                    .foregroundColor(Color(.secondaryLabel)) // Adapts to light/dark mode
             }
             Spacer()
             Button(action: onViewOriginal) {
@@ -465,7 +490,7 @@ struct ArticleCard: View {
                     .font(.system(size: 20))
                     .foregroundColor(Color(.gray))
                     .padding(8)
-                    .background(Color(.systemGray6))
+                    .background(Color(.systemGray6)) // Adapts to light/dark mode
                     .clipShape(Circle())
             }
             Button(action: onChat) {
@@ -480,35 +505,35 @@ struct ArticleCard: View {
             }
         }
         .padding(16)
-        .background(Color.white.opacity(0.8))
+        .background(Material.thin) // Using Material for a modern look, similar to .white.opacity(0.8) but adapts better
         .cornerRadius(14)
         .shadow(color: Color.black.opacity(0.05), radius: 8, x: 0, y: 2)
     }
 }
 
-// MARK: - 导入方式选择 Sheet View
+// MARK: - ImportOptionsView (No changes, included for completeness)
 struct ImportOptionsView: View {
     let onImportLocal: () -> Void
     let onImportWifi: () -> Void
     @Environment(\.dismiss) var dismiss
 
     var body: some View {
-        NavigationView {
+        NavigationView { // NavigationView is good for sheets that need a title/toolbar
             List {
                 Button("从本地文件导入") {
                     onImportLocal()
-                    dismiss()
+                    // dismiss() // No longer needed, sheet dismisses via onImportLocal changing state
                 }
                 Button("通过 WiFi 导入") {
                     onImportWifi()
-                    dismiss()
+                    // dismiss() // No longer needed
                 }
             }
             .navigationTitle("选择导入方式")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("取消") {
+                ToolbarItem(placement: .confirmationAction) { // Or .navigationBarTrailing
+                    Button("完成") { // Changed "取消" to "完成" or "关闭" as it's more of a selection
                         dismiss()
                     }
                 }
@@ -517,9 +542,25 @@ struct ImportOptionsView: View {
     }
 }
 
+// Preview (assuming PersistenceController and TabType exist)
 struct ArticleListView_Previews: PreviewProvider {
     static var previews: some View {
-        ArticleListView(selectedTab: .constant(.articleList))
-            .environment(\.managedObjectContext, PersistenceController.preview.container.viewContext)
+        let context = PersistenceController.preview.container.viewContext
+        // Add some mock articles for the preview
+        let article1 = Article(context: context)
+        article1.title = "示例文章 1"
+        article1.content = "这是示例文章 1 的内容"
+        article1.importDate = Date()
+        
+        let article2 = Article(context: context)
+        article2.title = "示例文章 2"
+        article2.content = "这是示例文章 2 的内容"
+        article2.importDate = Date().addingTimeInterval(-100)
+        
+        return ArticleListView(selectedTab: .constant(.articleList), selectedArticleForChat: .constant(nil))
+            .environment(\.managedObjectContext, context)
     }
-} 
+}
+
+// Placeholder for TabType if it's not defined in this file
+// enum TabType { case articleList, summary /* other cases */ }

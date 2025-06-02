@@ -25,10 +25,40 @@ public struct Prompt: Identifiable, Codable, Hashable {
 public extension Prompt {
     // Default AI prompts (example)
     static let DEFAULT_PRESET_PROMPTS: [Prompt] = [
-        Prompt(title: "总结", content: "请总结文章的主要内容。"),
-        Prompt(title: "分析", content: "请分析文章的核心观点和论证过程。"),
-        Prompt(title: "提取关键词", content: "请提取文章的关键词。"),
-        Prompt(title: "解释术语[x]", content: "请解释一下我在剪贴板中粘贴的术语：[x]") // Example of [x] prompt
+        // 全文总结
+        Prompt(title: "全文总结", content: """
+总结内容要求：
+- 快速提炼核心观点
+- 保留关键细节
+- 口语化表达
+- 根据文章类型调整侧重点
+- 对疑问句标题直接回答
+"""),
+        // 批判性思考
+        Prompt(title: "批判性思考", content: """
+用最大白话、最容易懂的简体中文进行批判性思考。请尝试从下面几个方面帮我分析分析（挑你觉得最合适的几个方面说就行，不用每个都说）：
+
+1.  **它到底在说啥？** (核心观点/主要信息是什么？)
+2.  **这么说有啥依据吗？** (支撑它的理由或证据可靠吗？充分吗？)
+3.  **有没有啥没明说但暗含的意思？** (背后可能藏着什么假设或前提？)
+4.  **有没有别的看法或角度？** (换个角度看会怎么样？有没有不同的声音？)
+5.  **可能会有啥好的或不好的影响？** (长远来看会怎么样？)
+6.  **我们应该怎么更全面地看待这事儿/这个说法？**
+
+请把你的分析一点一点说清楚，用简单的词，别整那些难懂的。
+"""),
+        // 列出案例
+        Prompt(title: "列出案例", content: "总结这篇文章中提到的案例或故事"),
+        // 列出数据
+        Prompt(title: "列出数据", content: "请从文章中提取所有数据点和统计信息，并按重要性排序。"),
+        // 列出金句
+        Prompt(title: "列出金句", content: "提取这篇文章中的金句或精彩观点"),
+        // 新颖见解
+        Prompt(title: "新颖见解", content: "找出这篇文章中新颖或反直觉的观点"),
+        // 科普[x]
+        Prompt(title: "科普[x]", content: "大白话科普一下"),
+        // 展开[x]
+        Prompt(title: "展开[x]", content: "对以下内容请展开说说:\n")
     ]
 
     // Define the public static default batch summary prompt
