@@ -9,27 +9,33 @@ import SwiftUI
 import CoreData
 
 struct ContentView: View {
+    @State private var selectedTab: TabType = .articleList
+
     var body: some View {
-        TabView {
-            ArticleListView()
+        TabView(selection: $selectedTab) {
+            ArticleListView(selectedTab: $selectedTab)
                 .tabItem {
-                    Label("文章列表", systemImage: "list.bullet")
+                    Label("文章列表", systemImage: "list.bullet.rectangle")
                 }
+                .tag(TabType.articleList)
             
-            ContentSummaryView()
+            SummaryView()
                 .tabItem {
-                    Label("内容总结", systemImage: "doc.text")
+                    Label("内容总结", systemImage: "doc.text.magnifyingglass")
                 }
+                .tag(TabType.summary)
             
-            AIChatView()
+            AIChatView(article: nil)
                 .tabItem {
                     Label("AI对话", systemImage: "bubble.left.and.bubble.right")
                 }
+                .tag(TabType.aiChat)
             
             SettingsView()
                 .tabItem {
                     Label("设置", systemImage: "gear")
                 }
+                .tag(TabType.settings)
         }
     }
 }

@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		D2B35B552DECC25A00E53607 /* Down in Frameworks */ = {isa = PBXBuildFile; productRef = D2B35B542DECC25A00E53607 /* Down */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		D2909F252DEAB0F700832E4F /* LumiReader.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LumiReader.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -36,6 +40,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D2B35B552DECC25A00E53607 /* Down in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -78,6 +83,7 @@
 			);
 			name = LumiReader;
 			packageProductDependencies = (
+				D2B35B542DECC25A00E53607 /* Down */,
 			);
 			productName = LumiReader;
 			productReference = D2909F252DEAB0F700832E4F /* LumiReader.app */;
@@ -108,6 +114,7 @@
 			mainGroup = D2909F1C2DEAB0F600832E4F;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				D2B35B532DECC25A00E53607 /* XCRemoteSwiftPackageReference "Down" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = D2909F262DEAB0F700832E4F /* Products */;
@@ -271,6 +278,7 @@
 				DEVELOPMENT_TEAM = 9HGR5HKLNN;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = LumiReader/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -300,6 +308,7 @@
 				DEVELOPMENT_TEAM = 9HGR5HKLNN;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = LumiReader/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -341,6 +350,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		D2B35B532DECC25A00E53607 /* XCRemoteSwiftPackageReference "Down" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/johnxnguyen/Down.git";
+			requirement = {
+				branch = master;
+				kind = branch;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		D2B35B542DECC25A00E53607 /* Down */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D2B35B532DECC25A00E53607 /* XCRemoteSwiftPackageReference "Down" */;
+			productName = Down;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = D2909F1D2DEAB0F600832E4F /* Project object */;
 }

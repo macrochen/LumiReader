@@ -1,27 +1,23 @@
-import SwiftUI
+//
+//  SettingsView.swift
+//  LumiReader
+//
+//  Created by jolin on 2025/5/31.
+//
 
-// 提示词结构体
-struct Prompt: Identifiable {
-    let id = UUID()
-    var title: String
-    var content: String
-}
+import SwiftUI
+import CoreData // Import CoreData for NSManagedObjectContext
+//import Models // Import shared Prompt structure and default prompts
 
 struct SettingsView: View {
     // 示例数据
-    @StateObject private var driveService = GoogleDriveService.shared
-    @State private var googleAccount: String = "developer@example.com"
-    @State private var apiKey: String = "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-    @State private var batchSummaryPrompt: String = "请针对以下多篇文章内容，为每一篇都生成包含\"主要内容\"、\"核心观点\"、\"关键细节\"和\"深度解读\"的结构化总结报告。将所有文章的总结合并为一个统一的文本块输出。"
-    @State private var aiPrompts: [Prompt] = [
-        Prompt(title: "全文总结", content: "请对这篇文章进行全面的总结，包括主要观点、关键论据和重要结论。"),
-        Prompt(title: "批判性思考", content: "请从批判性思维的角度分析这篇文章，指出其优点、局限性和可能的改进空间。")
-    ]
+    @AppStorage("geminiApiKey") private var geminiApiKey: String = ""
+    @AppStorage("batchSummaryPrompt") private var batchSummaryPrompt: String = ""
+    @AppStorage("aiPromptsData") private var aiPromptsData: Data = Data()
+    @State private var aiPrompts: [Prompt] = []
     @State private var editingPromptIndex: Int? = nil
     @State private var newPromptTitle: String = ""
     @State private var newPromptContent: String = ""
-    @State private var showingFilePicker = false
-    @State private var errorMessage: String?
     
     var body: some View {
         ZStack {
@@ -30,58 +26,9 @@ struct SettingsView: View {
                 .ignoresSafeArea()
             
             VStack(spacing: 0) {
-                // 标题栏
-                HStack {
-                    Spacer()
-                    Text("系统设置")
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundColor(Color(.label))
-                    Spacer()
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 8)
-                
                 // 设置内容区
                 ScrollView {
                     VStack(spacing: 20) {
-                        // Google Drive账户
-                        SettingGroupBox(title: "Google Drive 账户") {
-                            VStack(spacing: 0) {
-                                SettingItem {
-                                    HStack {
-                                        Text("当前账户")
-                                        Spacer()
-                                        Text(driveService.currentUser?.profile?.email ?? "未登录")
-                                            .foregroundColor(.gray)
-                                            .font(.system(size: 14))
-                                    }
-                                }
-                                Divider()
-                                SettingItem {
-                                    HStack {
-                                        Button(action: {
-                                            showingFilePicker = true
-                                        }) {
-                                            Text("切换账户")
-                                                .foregroundColor(.blue)
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                        }
-                                    }
-                                }
-                                Divider()
-                                SettingItem {
-                                    HStack {
-                                        Button(action: {
-                                            driveService.signOut()
-                                        }) {
-                                            Text("断开连接")
-                                                .foregroundColor(.red)
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                        }
-                                    }
-                                }
-                            }
-                        }
                         // AI服务配置
                         SettingGroupBox(title: "AI 服务配置") {
                             VStack(spacing: 0) {
@@ -90,7 +37,7 @@ struct SettingsView: View {
                                         .font(.system(size: 13, weight: .medium))
                                         .foregroundColor(.gray)
                                     HStack(spacing: 8) {
-                                        TextField("请输入API Key", text: $apiKey)
+                                        TextField("请输入API Key", text: $geminiApiKey)
                                             .textFieldStyle(PlainTextFieldStyle())
                                             .padding(8)
                                             .background(Color.white.opacity(0.7))
@@ -120,7 +67,15 @@ struct SettingsView: View {
                                         .font(.system(size: 15))
                                     HStack {
                                         Spacer()
-                                        Button(action: { /* 恢复默认 */ }) {
+                                        Button(action: {
+                                            // 恢复默认批量总结提示词
+                                            batchSummaryPrompt = ""
+                                            
+                                            // 恢复默认预设提示词并保存
+                                            aiPrompts = []
+                                            savePrompts()
+                                            
+                                        }) {
                                             Text("恢复默认")
                                                 .font(.system(size: 13))
                                                 .foregroundColor(.gray)
@@ -159,7 +114,9 @@ struct SettingsView: View {
                                                     .background(Color.white.opacity(0.7))
                                                     .cornerRadius(6)
                                                     .font(.system(size: 15))
-                                                    Button(action: { editingPromptIndex = nil }) {
+                                                    Button(action: {
+                                                        editingPromptIndex = nil
+                                                    }) {
                                                         Image(systemName: "checkmark")
                                                             .foregroundColor(.blue)
                                                     }
@@ -185,7 +142,7 @@ struct SettingsView: View {
                                                             Image(systemName: "pencil")
                                                                 .foregroundColor(.blue)
                                                         }
-                                                        Button(action: { aiPrompts.remove(at: idx) }) {
+                                                        Button(action: { deletePrompt(at: idx) }) {
                                                             Image(systemName: "trash")
                                                                 .foregroundColor(.red)
                                                         }
@@ -203,10 +160,7 @@ struct SettingsView: View {
                                     }
                                 }
                                 SettingItem {
-                                    Button(action: {
-                                        aiPrompts.append(Prompt(title: "", content: ""))
-                                        editingPromptIndex = aiPrompts.count - 1
-                                    }) {
+                                    Button(action: { addPrompt() }) {
                                         HStack(spacing: 6) {
                                             Image(systemName: "plus.circle")
                                                 .font(.system(size: 16))
@@ -216,6 +170,19 @@ struct SettingsView: View {
                                         .foregroundColor(.blue)
                                     }
                                 }
+                                HStack {
+                                    Spacer()
+                                    Button(action: { savePrompts() }) {
+                                        Text("保存")
+                                            .font(.system(size: 13))
+                                            .foregroundColor(.white)
+                                            .padding(.vertical, 6)
+                                            .padding(.horizontal, 16)
+                                            .background(Color.blue)
+                                            .cornerRadius(8)
+                                    }
+                                }
+                                .padding(.top, 8)
                             }
                         }
                     }
@@ -224,35 +191,34 @@ struct SettingsView: View {
                 }
                 .background(Color.clear)
                 .frame(maxHeight: .infinity)
-                
-                // 底部TabBar
-                Divider()
-                CustomTabBar(selected: .settings)
-                    .padding(.bottom, 6)
             }
         }
-        .sheet(isPresented: $showingFilePicker) {
-            GoogleDriveFilePicker { files in
-                // 处理选中的文件
-                Task {
-                    do {
-                        for file in files {
-                            let data = try await driveService.downloadFile(file)
-                            // TODO: 处理下载的文件数据
-                        }
-                    } catch {
-                        errorMessage = error.localizedDescription
-                    }
-                }
-            }
+        .onAppear(perform: loadPrompts)
+    }
+    
+    // MARK: - Helper Functions
+    private func savePrompts() {
+        if let encoded = try? JSONEncoder().encode(aiPrompts) {
+            aiPromptsData = encoded
         }
-        .alert("错误", isPresented: .constant(errorMessage != nil)) {
-            Button("确定") {
-                errorMessage = nil
-            }
-        } message: {
-            Text(errorMessage ?? "")
+    }
+    
+    private func loadPrompts() {
+        if let decoded = try? JSONDecoder().decode([Prompt].self, from: aiPromptsData) {
+            aiPrompts = decoded
+        } else {
+            // Load default prompts if no data is saved
+            aiPrompts = []
         }
+    }
+    
+    private func addPrompt() {
+        aiPrompts.append(Prompt(title: "", content: ""))
+        editingPromptIndex = aiPrompts.count - 1
+    }
+    
+    private func deletePrompt(at index: Int) {
+        aiPrompts.remove(at: index)
     }
 }
 

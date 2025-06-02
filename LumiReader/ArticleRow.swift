@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreData
 
 struct ArticleRow: View {
     let article: Article

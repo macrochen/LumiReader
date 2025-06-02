@@ -6,21 +6,17 @@
 //
 
 import SwiftUI
-import GoogleSignIn
 
 @main
 struct LumiReaderApp: App {
-    init() {
-        // 配置Google Sign-In
-        guard let clientID = Bundle.main.object(forInfoDictionaryKey: "GoogleClientID") as? String else {
-            fatalError("No Google Client ID found in Info.plist")
-        }
-        GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: clientID)
-    }
+    // Initialize PersistenceController and get the viewContext
+    let persistenceController = PersistenceController.shared
     
     var body: some Scene {
         WindowGroup {
             ContentView()
+                // Inject the managedObjectContext into the environment
+                .environment(\.managedObjectContext, persistenceController.container.viewContext)
         }
     }
 }

@@ -1,4 +1,13 @@
 import SwiftUI
+import UniformTypeIdentifiers
+import CoreData
+import SafariServices // Import SafariServices for opening links
+
+struct ImportedArticle: Codable {
+    let title: String
+    let url: String
+    let textContent: String
+}
 
 struct ArticleListView: View {
     @Environment(\.managedObjectContext) private var viewContext
@@ -7,11 +16,102 @@ struct ArticleListView: View {
         animation: .default)
     private var articles: FetchedResults<Article>
     
+    @Binding var selectedTab: TabType
+    
     @State private var selectedArticles: Set<ObjectIdentifier> = []
-    @State private var showingImportSheet = false
     @State private var showingBatchSummary = false
     @State private var errorMessage: String?
     @State private var showingError = false
+    
+    @State private var showingImportSuccess = false
+    @State private var importedCount = 0
+    
+    @State private var showingImportOptions = false
+    @State private var isImportingLocalFile = false
+    @State private var showingWifiImportView = false
+    
+    @State private var importError: String?
+    @State private var isSummarizing = false
+    @State private var latestSummary: BatchSummary?
+    @FetchRequest(
+        sortDescriptors: [NSSortDescriptor(keyPath: \BatchSummary.timestamp, ascending: false)],
+        animation: .default)
+    private var batchSummaries: FetchedResults<BatchSummary>
+    
+    // State to track the article selected for chat
+    @State private var selectedArticleForChat: Article? = nil
+    
+    // Computed property for the operation toolbar
+    private var operationToolbarView: some View {
+        HStack(spacing: 12) {
+            Button(action: selectAllArticles) {
+                Text("全部选中")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(Color.blue)
+                    .padding(.vertical, 7)
+                    .padding(.horizontal, 16)
+                    .background(Color.blue.opacity(0.12))
+                    .cornerRadius(10)
+            }
+            Button(action: selectFiveArticles) {
+                Text("选中5篇")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(Color.blue)
+                    .padding(.vertical, 7)
+                    .padding(.horizontal, 16)
+                    .background(Color.blue.opacity(0.12))
+                    .cornerRadius(10)
+            }
+            Button(action: summarizeSelectedArticles) {
+                Text("批量总结")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.white)
+                    .padding(.vertical, 7)
+                    .padding(.horizontal, 16)
+                    .background(LinearGradient(gradient: Gradient(colors: [Color.blue, Color.pink]), startPoint: .leading, endPoint: .trailing))
+                    .cornerRadius(10)
+            }
+            Button(action: deleteSelectedArticles) {
+                Text("删除选中")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.white)
+                    .padding(.vertical, 7)
+                    .padding(.horizontal, 16)
+                    .background(Color.red)
+                    .cornerRadius(10)
+            }
+            .disabled(selectedArticles.isEmpty || isSummarizing)
+        }
+    }
+    
+    // Computed property for the article list content
+    private var articleListContent: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                if articles.isEmpty {
+                    Text("暂无文章，请点击右上角按钮导入")
+                        .foregroundColor(.gray)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.top, 40)
+                } else {
+                    ForEach(articles) {
+                        article in
+                        ArticleCard(
+                            article: article,
+                            isSelected: selectedArticles.contains(ObjectIdentifier(article)),
+                            onSelect: { toggleArticleSelection(article) },
+                            onViewOriginal: { openOriginalArticle(article) },
+                            onChat: { selectedArticleForChat = article }
+                        )
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 8)
+        }
+        .background(Color.clear)
+        .frame(maxHeight: .infinity)
+    }
     
     var body: some View {
         ZStack {
@@ -26,7 +126,9 @@ struct ArticleListView: View {
                         .font(.system(size: 22, weight: .semibold))
                         .foregroundColor(Color(.label))
                     Spacer()
-                    Button(action: { showingImportSheet = true }) {
+                    Button(action: {
+                        showingImportOptions = true
+                    }) {
                         Image(systemName: "square.and.arrow.down")
                             .font(.system(size: 24, weight: .medium))
                             .foregroundColor(Color(.gray))
@@ -39,84 +141,170 @@ struct ArticleListView: View {
                 .padding(.vertical, 6)
                 
                 // 操作工具栏
-                HStack(spacing: 12) {
-                    Button(action: selectAllArticles) {
-                        Text("全部选中")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(Color.blue)
-                            .padding(.vertical, 7)
-                            .padding(.horizontal, 16)
-                            .background(Color.blue.opacity(0.12))
-                            .cornerRadius(10)
-                    }
-                    Button(action: selectFiveArticles) {
-                        Text("选中5篇")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(Color.blue)
-                            .padding(.vertical, 7)
-                            .padding(.horizontal, 16)
-                            .background(Color.blue.opacity(0.12))
-                            .cornerRadius(10)
-                    }
-                    Button(action: { showingBatchSummary = true }) {
-                        Text("批量总结选中")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(.white)
-                            .padding(.vertical, 7)
-                            .padding(.horizontal, 16)
-                            .background(LinearGradient(gradient: Gradient(colors: [Color.blue, Color.pink]), startPoint: .leading, endPoint: .trailing))
-                            .cornerRadius(10)
-                    }
-                    .disabled(selectedArticles.isEmpty)
-                }
+                operationToolbarView
                 .padding(.horizontal, 20)
                 .padding(.vertical, 8)
                 .background(Color.white.opacity(0.5).blur(radius: 2))
                 
                 // 文章列表
-                ScrollView {
-                    VStack(spacing: 16) {
-                        if articles.isEmpty {
-                            Text("暂无文章，请从Google Drive导入")
-                                .foregroundColor(.gray)
-                                .frame(maxWidth: .infinity, alignment: .center)
-                                .padding(.top, 40)
-                        } else {
-                            ForEach(articles) { article in
-                                ArticleCard(
-                                    article: article,
-                                    isSelected: selectedArticles.contains(ObjectIdentifier(article)),
-                                    onSelect: { toggleArticleSelection(article) },
-                                    onViewOriginal: { openOriginalArticle(article) },
-                                    onChat: { startChat(article) }
-                                )
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 8)
-                }
-                .background(Color.clear)
-                .frame(maxHeight: .infinity)
+                articleListContent
                 
-                // 底部TabBar
-                Divider()
-                CustomTabBar(selected: .articleList)
-                    .padding(.bottom, 6)
             }
         }
-        .sheet(isPresented: $showingImportSheet) {
-            GoogleDriveImportView()
+        .overlay {
+            if isSummarizing {
+                ZStack {
+                    Color.black.opacity(0.2)
+                        .edgesIgnoringSafeArea(.all)
+                        .ignoresSafeArea(edges: .all)
+                    
+                    VStack {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .blue))
+                            .scaleEffect(2.0) // Increased scale
+                        
+                        Text("总结中...")
+                            .font(.headline) // Larger font
+                            .foregroundColor(.primary)
+                    }
+                    .padding(20) // Padding around the loading content
+                    .background(Color.white.opacity(0.9)) // Adjusted background
+                    .cornerRadius(12) // Adjusted corner radius
+                    .shadow(radius: 15) // Adjusted shadow
+                }
+            }
         }
+        .background(
+            LinearGradient(gradient: Gradient(colors: [Color(red: 0.90, green: 0.95, blue: 1.0), Color(red: 0.85, green: 0.91, blue: 1.0)]), startPoint: .topLeading, endPoint: .bottomTrailing)
+                .ignoresSafeArea()
+        )
+        .navigationTitle("文章列表")
+        .navigationBarTitleDisplayMode(.inline)
         .alert("错误", isPresented: $showingError, presenting: errorMessage) { _ in
             Button("确定", role: .cancel) {}
         } message: { message in
             Text(message)
         }
+        .alert("导入成功", isPresented: $showingImportSuccess) {
+            Button("确定", role: .cancel) {}
+        } message: {
+            Text("成功导入 \(importedCount) 篇文章。")
+        }
+        .sheet(isPresented: $showingImportOptions) {
+            ImportOptionsView(
+                onImportLocal: {
+                    isImportingLocalFile = true
+                    showingImportOptions = false
+                },
+                onImportWifi: {
+                    showingWifiImportView = true
+                    showingImportOptions = false
+                }
+            )
+            .presentationDetents([.medium, .large])
+        }
+        .fileImporter(
+            isPresented: $isImportingLocalFile,
+            allowedContentTypes: [.json],
+            allowsMultipleSelection: false
+        ) { result in
+            do {
+                guard let selectedFile: URL = try result.get().first else {
+                    importError = "未选择文件"
+                    showingError = true
+                    return
+                }
+                let didStartAccessing = selectedFile.startAccessingSecurityScopedResource()
+                defer {
+                    if didStartAccessing {
+                        selectedFile.stopAccessingSecurityScopedResource()
+                    }
+                }
+
+                let data = try Data(contentsOf: selectedFile)
+                let decoder = JSONDecoder()
+                let imported = try decoder.decode([ImportedArticle].self, from: data)
+
+                // 使用私有上下文进行导入和保存
+                let privateContext = NSManagedObjectContext(concurrencyType: .privateQueueConcurrencyType)
+                privateContext.parent = viewContext // 将私有上下文的父级设置为视图上下文
+
+                privateContext.perform { // 在私有上下文的队列中执行
+                    do {
+                        var currentImportedCount = 0
+                        for item in imported {
+                            let article = Article(context: privateContext) // 在私有上下文中创建
+                            article.title = item.title
+                            article.link = item.url
+                            article.content = item.textContent
+                            article.importDate = Date()
+                            currentImportedCount += 1
+                        }
+
+                        if privateContext.hasChanges {
+                            try privateContext.save() // 保存私有上下文
+                        }
+
+                        // 将更改推送到父上下文 (viewContext)
+                        viewContext.performAndWait { // 在主队列执行
+                            do {
+                                if viewContext.hasChanges {
+                                    try viewContext.save() // 保存主上下文
+                                }
+                                // Update UI on the main thread
+                                DispatchQueue.main.async {
+                                    self.importedCount = currentImportedCount
+                                    self.showingImportSuccess = true
+                                    self.importError = nil
+                                }
+                            } catch {
+                                DispatchQueue.main.async {
+                                    self.importError = "导入失败：保存到主上下文错误：\(error.localizedDescription)"
+                                    self.showingError = true
+                                }
+                            }
+                        }
+
+                    } catch {
+                        // Handle errors during private context operations
+                        DispatchQueue.main.async {
+                            self.importError = "导入失败：私有上下文操作错误：\(error.localizedDescription)"
+                            self.showingError = true
+                        }
+                    }
+                }
+
+            } catch {
+                // Handle errors during file selection or decoding
+                
+                // 增加对 DecodingError 的详细日志输出
+                if let decodingError = error as? DecodingError {
+                    print("JSON Decoding Error: \(decodingError)")
+                    importError = "导入失败：JSON 解码错误：请检查文件格式是否正确。\n详细：\(decodingError.localizedDescription)"
+                } else {
+                    print("File Import Error: \(error)")
+                    importError = "导入失败：读取或解码文件错误：\(error.localizedDescription)"
+                }
+                showingError = true
+            }
+        }
+        .sheet(isPresented: $showingWifiImportView) {
+            WifiImportView()
+                .environment(\.managedObjectContext, viewContext)
+        }
+        .sheet(item: $selectedArticleForChat) { article in
+            AIChatView(article: article)
+                .environment(\.managedObjectContext, viewContext)
+        }
     }
     
     private func selectAllArticles() {
-        selectedArticles = Set(articles.map { ObjectIdentifier($0) })
+        // Toggle select all/deselect all
+        if selectedArticles.count == articles.count && !articles.isEmpty {
+            selectedArticles = [] // Deselect all
+        } else {
+            selectedArticles = Set(articles.map { ObjectIdentifier($0) }) // Select all
+        }
     }
     
     private func selectFiveArticles() {
@@ -147,9 +335,94 @@ struct ArticleListView: View {
     }
     
     private func startChat(_ article: Article) {
-        // TODO: 实现跳转到AI对话页面
-        errorMessage = "AI对话功能尚未实现"
-        showingError = true
+        // No longer shows error, navigation is handled by NavigationLink
+        // Implement actual chat start logic in AIChatView.onAppear
+    }
+
+    private func summarizeSelectedArticles() {
+        guard !selectedArticles.isEmpty else {
+            errorMessage = "请先选择要总结的文章"
+            showingError = true
+            return
+        }
+
+        isSummarizing = true
+
+        // TODO: 获取 Gemini API Key 和总结提示词
+        let apiKey = UserDefaults.standard.string(forKey: "geminiApiKey") ?? ""
+        // Use the shared default prompt if UserDefaults is empty
+        let summaryPrompt = UserDefaults.standard.string(forKey: "batchSummaryPrompt") ?? Prompt.DEFAULT_BATCH_SUMMARY_PROMPT
+
+        guard !apiKey.isEmpty else {
+            errorMessage = "请先在设置中填写 Gemini API Key"
+            showingError = true
+            isSummarizing = false
+            return
+        }
+
+        guard !summaryPrompt.isEmpty else {
+            errorMessage = "请先在设置中填写批量总结提示词"
+            showingError = true
+            isSummarizing = false
+            return
+        }
+
+        // 准备要总结的文章数据
+        let selectedArticlesData = articles.filter { selectedArticles.contains(ObjectIdentifier($0)) }
+            .map { ["title": $0.title ?? "", "content": $0.content ?? ""] }
+
+        // 调用 Gemini API 进行批量总结
+        Task {
+            do {
+                let summary = try await GeminiService.summarizeArticles(articles: selectedArticlesData, apiKey: apiKey, summaryPrompt: summaryPrompt)
+
+                // --- Start: Delete existing summaries before saving new one ---
+                let fetchRequest: NSFetchRequest<NSFetchRequestResult> = BatchSummary.fetchRequest()
+                let deleteRequest = NSBatchDeleteRequest(fetchRequest: fetchRequest)
+
+                try viewContext.execute(deleteRequest)
+                // --- End: Delete existing summaries ---
+
+                // 创建一个新的 BatchSummary 对象
+                let newSummary = BatchSummary(context: viewContext)
+                newSummary.id = UUID()
+                newSummary.content = summary
+                newSummary.timestamp = Date()
+
+                // 保存到 Core Data
+                try viewContext.save()
+                // latestSummary = newSummary // This state is no longer needed here
+                
+                // Navigate to the Summary tab after successful save
+                await MainActor.run { // Ensure UI update happens on the main actor
+                    selectedTab = .summary
+                    isSummarizing = false
+                }
+
+            } catch {
+                errorMessage = "总结失败: \(error.localizedDescription)"
+                showingError = true
+                isSummarizing = false // Ensure loading indicator is hidden on error
+            }
+        }
+    }
+
+    private func deleteSelectedArticles() {
+        let articlesToDelete = articles.filter { selectedArticles.contains(ObjectIdentifier($0)) }
+        
+        for article in articlesToDelete {
+            viewContext.delete(article)
+        }
+        
+        do {
+            try viewContext.save()
+            selectedArticles = [] // Clear selection after deletion
+        } catch {
+            // Handle the error appropriately
+            print("Error deleting articles: \(error)")
+            errorMessage = "删除文章失败: \(error.localizedDescription)"
+            showingError = true
+        }
     }
 }
 
@@ -213,42 +486,40 @@ struct ArticleCard: View {
     }
 }
 
-// MARK: - 自定义TabBar
-enum TabType { case articleList, summary, aiChat, settings }
+// MARK: - 导入方式选择 Sheet View
+struct ImportOptionsView: View {
+    let onImportLocal: () -> Void
+    let onImportWifi: () -> Void
+    @Environment(\.dismiss) var dismiss
 
-struct CustomTabBar: View {
-    let selected: TabType
     var body: some View {
-        HStack {
-            tabItem(icon: "list.bullet.rectangle", label: "文章列表", active: selected == .articleList)
-            tabItem(icon: "doc.text.magnifyingglass", label: "内容总结", active: selected == .summary)
-            tabItem(icon: "ellipsis.bubble", label: "AI对话", active: selected == .aiChat)
-            tabItem(icon: "gearshape", label: "系统设置", active: selected == .settings)
+        NavigationView {
+            List {
+                Button("从本地文件导入") {
+                    onImportLocal()
+                    dismiss()
+                }
+                Button("通过 WiFi 导入") {
+                    onImportWifi()
+                    dismiss()
+                }
+            }
+            .navigationTitle("选择导入方式")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("取消") {
+                        dismiss()
+                    }
+                }
+            }
         }
-        .padding(.top, 4)
-        .background(Color.white)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .shadow(color: Color.black.opacity(0.04), radius: 2, x: 0, y: -1)
-    }
-    
-    @ViewBuilder
-    private func tabItem(icon: String, label: String, active: Bool) -> some View {
-        VStack(spacing: 2) {
-            Image(systemName: icon)
-                .font(.system(size: 22, weight: .medium))
-                .foregroundColor(active ? Color.blue : Color(.systemGray3))
-            Text(label)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(active ? Color.blue : Color(.systemGray3))
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 2)
     }
 }
 
 struct ArticleListView_Previews: PreviewProvider {
     static var previews: some View {
-        ArticleListView()
+        ArticleListView(selectedTab: .constant(.articleList))
             .environment(\.managedObjectContext, PersistenceController.preview.container.viewContext)
     }
 } 
