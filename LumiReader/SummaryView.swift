@@ -52,7 +52,7 @@ struct SummaryView: View {
 
     var body: some View {
         ZStack {
-            LinearGradient(gradient: Gradient(colors: [Color(red: 0.91, green: 0.84, blue: 1.0), Color(red: 0.95, green: 0.91, blue: 1.0)]), startPoint: .topLeading, endPoint: .bottomTrailing)
+            LinearGradient(gradient: Gradient(colors: [Color(red: 0.90, green: 0.95, blue: 1.0), Color(red: 0.85, green: 0.91, blue: 1.0)]), startPoint: .topLeading, endPoint: .bottomTrailing)
                 .ignoresSafeArea() // Keep this if you want the gradient to fill the whole screen
 
             VStack(spacing: 0) {

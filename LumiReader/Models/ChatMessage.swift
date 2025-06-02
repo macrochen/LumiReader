@@ -5,8 +5,8 @@ struct ChatMessage: Identifiable, Codable, Hashable, Equatable {
     let sender: Sender
     let content: String
 
-    enum Sender: Codable, Hashable {
+    enum Sender: String, Codable, Hashable {
         case user
-        case gemini
+        case gemini = "model"
     }
 } 

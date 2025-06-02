@@ -46,19 +46,35 @@ struct ChatMessageItem: Identifiable, Equatable {
 }
 
 // 定义错误类型
-enum ChatError: LocalizedError {
+enum ChatError: LocalizedError, Identifiable {
     case networkError(String)
     case apiError(String)
     case invalidApiKey
     case emptyResponse
     case unknown(String)
     
+    // 添加 id 属性以满足 Identifiable 协议
+    var id: String {
+        switch self {
+        case .networkError(let message):
+            return "network_\(message)"
+        case .apiError(let message):
+            return "api_\(message)"
+        case .invalidApiKey:
+            return "invalid_api_key"
+        case .emptyResponse:
+            return "empty_response"
+        case .unknown(let message):
+            return "unknown_\(message)"
+        }
+    }
+    
     var errorDescription: String? {
         switch self {
         case .networkError(let message):
             return "网络错误：\(message)"
         case .apiError(let message):
-            return "API 错误：\(message)"
+            return message
         case .invalidApiKey:
             return "无效的 API Key，请在设置中检查"
         case .emptyResponse:
@@ -154,88 +170,115 @@ struct AIChatView: View {
     @Environment(\.managedObjectContext) private var viewContext
     @Environment(\.dismiss) var dismiss
     
-    // Make article optional and a Binding
-    @Binding var article: Article?
+    @Binding var article: Article? // Changed from pendingArticleID for directness as per latest context
     
-    // Fetch all articles
     @FetchRequest(
         sortDescriptors: [NSSortDescriptor(keyPath: \Article.importDate, ascending: false)],
         animation: .default)
     private var articles: FetchedResults<Article>
     
-    // State to hold the selected article
-    @State private var selectedArticle: Article? = nil
+    @State private var selectedArticle: Article? // Internal state for Picker if @Binding article is nil
     
-    // Use ChatMessageItem instead of tuple
     @State private var messages: [ChatMessageItem] = []
     @State private var inputText: String = ""
     @State private var isSending = false
-    @State private var errorMessage: String?
-    @State private var showingError = false
+    // @State private var errorMessage: String? // Replaced by chatError
+    // @State private var showingError = false // Replaced by chatError
     
-    // State for preset prompts (load from UserDefaults/Settings later)
     @State private var selectedPrompts: Set<Prompt> = []
     @AppStorage("aiPromptsData") private var aiPromptsData: Data = Data()
-    @State private var presetPrompts: [Prompt] = [] // Use the Prompt struct from Models
+    @State private var presetPrompts: [Prompt] = Prompt.DEFAULT_PRESET_PROMPTS // Initialize with default
     
-    // State to temporarily hold clipboard content for [x] prompts
-    @State private var clipboardContent: String = ""
+    @State private var clipboardContent: String = "" // Not directly used in this refactor but kept
     
-    // Add state for streaming response
     @State private var streamingMessageId: UUID?
     @State private var streamingContent: String = ""
     
-    // 更新错误状态
     @State private var chatError: ChatError?
     @State private var lastFailedMessage: String?
     
-    // 添加输入框状态
     @State private var isInputFocused: Bool = false
     @State private var inputHeight: CGFloat = 35
     @State private var isComposing: Bool = false
     
-    // 添加长按菜单状态
     @State private var selectedMessageForMenu: ChatMessage?
     @State private var showingMessageMenu = false
     
-    
+    @State private var appearCount = 0
+
+
+    // Initialize and sync selectedArticle with the binding `article`
+    init(article: Binding<Article?>) {
+        self._article = article
+        // Initialize _selectedArticle state with the initial value of the binding
+        // This ensures that if an article is passed in, it's used.
+        // If `article` is nil, then `selectedArticle` will also be nil, allowing Picker.
+        self._selectedArticle = State(initialValue: article.wrappedValue) 
+        // print("AIChatView init. Bound Article: \(article.wrappedValue?.title ?? "nil"), SelectedArticle: \(self.selectedArticle?.title ?? "nil")")
+    }
     
     // Computed property for preset prompts view
     @ViewBuilder
     private var presetPromptsView: some View {
         if !presetPrompts.isEmpty {
-            VStack(spacing: 8) {
-                // 提示词标签
+            VStack(alignment: .leading, spacing: 8) { // Ensure leading alignment for title
+                Text("选择预设提示词:") // Added a title for the section
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 10)
+
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(presetPrompts) { prompt in
+                            let isSelected = selectedPrompts.contains(prompt)
+                            let isExclusive = prompt.title.lowercased().contains("[x]")
+
                             Button(action: {
-                                if prompt.content.contains("[x]") {
-                                    // 处理 [x] 类型的提示词
-                                    if let clipboardString = UIPasteboard.general.string {
-                                        clipboardContent = clipboardString
-                                        inputText = prompt.content.replacingOccurrences(of: "[x]", with: clipboardString)
-                                    }
-                                } else {
-                                    inputText = prompt.content
-                                }
+                                togglePromptSelection(prompt: prompt, isExclusive: isExclusive)
+                                updateInputTextFromSelection()
                             }) {
                                 Text(prompt.title)
                                     .font(.system(size: 13, weight: .medium))
-                                    .foregroundColor(.white)
+                                    .foregroundColor(isSelected ? .white : (isExclusive ? Color.orange : Color.blue) ) // Distinct colors
                                     .padding(.vertical, 6)
                                     .padding(.horizontal, 12)
-                                    .background(LinearGradient(gradient: Gradient(colors: [Color.purple, Color.pink]), startPoint: .leading, endPoint: .trailing))
-                                    .cornerRadius(16)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 16)
+                                            .fill(isSelected ? (isExclusive ? Color.orange.opacity(0.8) : Color.blue.opacity(0.8)) : Color(.systemGray5))
+                                    )
+                                    // Removed .cornerRadius(16) here as it's on RoundedRectangle
                             }
                         }
                     }
-                    .padding(.horizontal, 8)
+                    .padding(.horizontal, 10) // Consistent padding
+                    .padding(.bottom, 6) // Add some bottom padding
                 }
-                .padding(.top, 4)
-                .padding(.bottom, 2)
             }
-            .background(Color.white.opacity(0.5).blur(radius: 2))
+            .padding(.top, 6) // Padding for the whole section
+            // .background(Color.white.opacity(0.5).blur(radius: 2)) // Kept background
+        }
+    }
+    
+    // Helper function to manage prompt selection logic
+    private func togglePromptSelection(prompt: Prompt, isExclusive: Bool) {
+        if isExclusive {
+            if selectedPrompts.contains(prompt) { // If the exclusive is already selected, deselect it
+                selectedPrompts.removeAll()
+            } else { // Select this exclusive prompt, deselect all others
+                selectedPrompts.removeAll()
+                selectedPrompts.insert(prompt)
+            }
+        } else { // Non-exclusive prompt
+            // If an exclusive prompt is currently selected, deselect it first
+            if let exclusivePrompt = selectedPrompts.first(where: { $0.title.lowercased().contains("[x]") }) {
+                selectedPrompts.remove(exclusivePrompt)
+            }
+            // Toggle selection for the current non-exclusive prompt
+            if selectedPrompts.contains(prompt) {
+                selectedPrompts.remove(prompt)
+            } else {
+                selectedPrompts.insert(prompt)
+            }
         }
     }
     
@@ -243,56 +286,69 @@ struct AIChatView: View {
     @ViewBuilder
     private var articlePickerContent: some View {
         Text("-- 选择文章开始对话 --").tag(nil as Article?)
-        ForEach(articles.prefix(10)) {
-            article in
-            Text(article.title ?? "无标题").tag(article as Article?)
+        ForEach(articles.prefix(10)) { articleItem in // Renamed to avoid conflict
+            Text(articleItem.title ?? "无标题").tag(articleItem as Article?)
         }
     }
     
-    
     var body: some View {
         ZStack {
-            // 渐变背景
-            LinearGradient(gradient: Gradient(colors: [Color(red: 0.95, green: 0.91, blue: 1.0), Color(red: 0.91, green: 0.84, blue: 1.0)]), startPoint: .topLeading, endPoint: .bottomTrailing)
+            LinearGradient(gradient: Gradient(colors: [Color(red: 0.90, green: 0.95, blue: 1.0), Color(red: 0.85, green: 0.91, blue: 1.0)]), startPoint: .topLeading, endPoint: .bottomTrailing)
                 .ignoresSafeArea()
             
             primaryContentView
         }
         .onAppear {
-            print("AIChatView appeared. Article: \(article?.title ?? "nil")")
-            loadPrompts() // loadPrompts 已经在这里
-        }
-        .onDisappear {
-            print("AIChatView disappeared. Article: \(article?.title ?? "nil")")
-        }
-        // .onAppear(perform: loadPrompts)
-        .alert("错误", isPresented: $showingError, presenting: errorMessage) { _ in
-            Button("确定", role: .cancel) {}
-        } message: { message in
-            Text(message)
-        }
-        .overlay {
-            if let error = chatError {
-                ErrorAlertView(
-                    error: error,
-                    retryAction: {
-                        if let lastMessage = lastFailedMessage {
-                            inputText = lastMessage
-                            sendMessage()
-                        }
-                        chatError = nil
-                    },
-                    dismissAction: {
-                        chatError = nil
-                    }
-                )
+            appearCount += 1
+            print("AIChatView onAppear (\(appearCount)). Bound Article: \(article?.title ?? "nil"), SelectedArticle: \(selectedArticle?.title ?? "nil")")
+            loadPrompts()
+            // Sync selectedArticle with the binding `article` if it changes externally or on initial appear
+            if selectedArticle?.objectID != article?.objectID { // Compare by objectID for CoreData entities
+                selectedArticle = article
+                if article != nil {
+                    messages = [] // Clear messages if a new article is selected via binding
+                    inputText = ""
+                    chatError = nil
+                }
             }
+        }
+        .onChange(of: article) { newArticleFromBinding in
+             print("AIChatView @Binding article changed to: \(newArticleFromBinding?.title ?? "nil")")
+            if selectedArticle?.objectID != newArticleFromBinding?.objectID {
+                selectedArticle = newArticleFromBinding
+                if newArticleFromBinding != nil {
+                     messages = [] // Clear messages if article changes
+                     inputText = ""
+                     chatError = nil
+                }
+            }
+        }
+        .alert(item: $chatError) { error in
+            Alert(
+                title: Text(error.errorDescription ?? "错误"),
+                message: Text(error.recoverySuggestion ?? "请稍后重试。"),
+                primaryButton: .default(Text("重试"), action: {
+                    if let lastMessage = lastFailedMessage {
+                        inputText = lastMessage
+                        sendMessage()
+                    }
+                }),
+                secondaryButton: .cancel(Text("关闭"))
+            )
         }
     }
     
     private func loadPrompts() {
         if let decoded = try? JSONDecoder().decode([Prompt].self, from: aiPromptsData) {
-            presetPrompts = decoded
+            if !decoded.isEmpty { // Only assign if decoded is not empty
+                presetPrompts = decoded
+            } else {
+                presetPrompts = Prompt.DEFAULT_PRESET_PROMPTS // Fallback to default
+                // Optionally save defaults if none were loaded
+                // if let encodedDefaults = try? JSONEncoder().encode(Prompt.DEFAULT_PRESET_PROMPTS) {
+                //     aiPromptsData = encodedDefaults
+                // }
+            }
         } else {
             presetPrompts = Prompt.DEFAULT_PRESET_PROMPTS
         }
@@ -300,40 +356,49 @@ struct AIChatView: View {
     
     private func sendMessage() {
         let trimmedInput = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Ensure an article is selected and input is not empty
-        guard !trimmedInput.isEmpty, !isSending, let article = selectedArticle else { return }
+        guard !trimmedInput.isEmpty, !isSending, let articleToChat = selectedArticle else { // Use selectedArticle
+            if selectedArticle == nil {
+                self.chatError = .unknown("请先选择一篇文章开始对话。")
+            }
+            return
+        }
         
-        // 检查 API Key
         let apiKey = UserDefaults.standard.string(forKey: "geminiApiKey") ?? ""
         guard !apiKey.isEmpty else {
             self.chatError = .invalidApiKey
-            self.showingError = true
             return
         }
         
         isSending = true
         inputText = ""
         lastFailedMessage = trimmedInput
+        selectedPrompts = [] // Clear selected prompts after sending
         
-        // Create user message with timestamp
         let userMessage = ChatMessage(id: UUID(), sender: .user, content: trimmedInput)
-        let attributedUserMessage = AttributedString(trimmedInput)
+        // Attempt to create AttributedString, fallback to plain string if markdown parsing fails
+        var attributedUserContent: AttributedString
+        do {
+            attributedUserContent = try AttributedString(markdown: trimmedInput)
+        } catch {
+            attributedUserContent = AttributedString(trimmedInput)
+        }
         let timestamp = MessageTimestamp()
-        messages.append(ChatMessageItem(message: userMessage, attributedContent: attributedUserMessage, timestamp: timestamp))
+        messages.append(ChatMessageItem(message: userMessage, attributedContent: attributedUserContent, timestamp: timestamp))
         
-        // Create a placeholder for the AI response
         let aiMessageId = UUID()
         streamingMessageId = aiMessageId
         streamingContent = ""
+        // Add a temporary streaming placeholder to messages
+        let placeholderAIMessage = ChatMessage(id: aiMessageId, sender: .gemini, content: "")
+        messages.append(ChatMessageItem(message: placeholderAIMessage, attributedContent: AttributedString("▌"), timestamp: MessageTimestamp()))
+
+
+        let apiHistory = messages.dropLast().map { $0.message } // Exclude the placeholder
         
-        // Prepare history for API call
-        let apiHistory = messages.map { $0.message }
-        
-        // Call GeminiService.chatWithGemini
         Task {
             do {
                 let stream = try await GeminiService.chatWithGemini(
-                    articleContent: article.content ?? "", // Use content of the selected article
+                    articleContent: articleToChat.content ?? "",
                     history: apiHistory,
                     newMessage: trimmedInput,
                     apiKey: apiKey
@@ -343,41 +408,40 @@ struct AIChatView: View {
                 await cleanupAfterSend()
             } catch {
                 await MainActor.run {
+                    // Remove placeholder on error before showing error
+                    if let index = messages.firstIndex(where: { $0.id == aiMessageId }) {
+                        messages.remove(at: index)
+                    }
                     handleError(error)
                 }
             }
         }
     }
     
-    private func copyMessageContent() {
-        if let rawContent = messages.last?.message.content, !rawContent.isEmpty {
-            #if canImport(UIKit)
-            UIPasteboard.general.string = rawContent
-            #endif
-        } else {
-            print("Attempted to copy empty or nil content.")
-        }
+    private func copyMessageContent(content: String) { // Added parameter
+        #if canImport(UIKit)
+        UIPasteboard.general.string = content
+        #endif
     }
     
     private func updateInputTextFromSelection() {
         var combinedText = ""
-        let sortedPrompts = selectedPrompts.sorted { $0.title < $1.title } // Sort for consistent order
+        let sortedPrompts = selectedPrompts.sorted { $0.title < $1.title }
         
-        if selectedPrompts.count == 1, let prompt = selectedPrompts.first, prompt.title.lowercased().hasSuffix("[x]") {
-            // Special case: single prompt with [x], combine with clipboard
-            // Reading pasteboard needs to be async in some contexts, but within onChange
-            // and triggered by a user action (tap), UIPasteboard.general.string is usually safe.
-            if let clipboardContent = UIPasteboard.general.string, !clipboardContent.isEmpty {
-                combinedText = prompt.content + "\n\n" + clipboardContent
+        if selectedPrompts.count == 1, let prompt = selectedPrompts.first, prompt.title.lowercased().contains("[x]") {
+            #if canImport(UIKit)
+            if let clipboardString = UIPasteboard.general.string, !clipboardString.isEmpty {
+                combinedText = prompt.content.replacingOccurrences(of: "[x]", with: clipboardString, options: .caseInsensitive)
             } else {
-                combinedText = prompt.content
+                combinedText = prompt.content.replacingOccurrences(of: "[x]", with: "", options: .caseInsensitive) // Replace [x] with empty if clipboard is empty
             }
+            #else
+            combinedText = prompt.content.replacingOccurrences(of: "[x]", with: "", options: .caseInsensitive) // Fallback for non-UIKit
+            #endif
         } else {
-            // Multiple prompts or single prompt without [x]
-            combinedText = sortedPrompts.map { $0.content }.joined(separator: "\n")
+            combinedText = sortedPrompts.map { $0.content }.joined(separator: "\n\n") // Add double newline for clarity
         }
         
-        // Update inputText on the main thread (though onChange is usually on main thread)
         DispatchQueue.main.async {
             inputText = combinedText
         }
@@ -387,395 +451,424 @@ struct AIChatView: View {
         streamingMessageId = nil
         isSending = false
         
-        // 将系统错误转换为我们的 ChatError，并确保类型转换安全
-        let chatError: ChatError = {
+        let specificError: ChatError = {
             if let chatErr = error as? ChatError {
                 return chatErr
             } else if let urlError = error as? URLError {
                 return .networkError(urlError.localizedDescription)
+            } else if let geminiError = error as? GeminiServiceError {
+                switch geminiError {
+                case .networkError(let description):
+                    return .networkError(description)
+                case .apiError(let message):
+                    return .apiError(message)
+                case .invalidAPIKey:
+                    return .invalidApiKey
+                case .emptyResponse:
+                    return .emptyResponse
+                case .httpError(let statusCode):
+                    // For httpError, create a message including the status code
+                    return .apiError("HTTP Status Code: \(statusCode)")
+                case .unknown(let underlyingError):
+                    // For unknown GeminiServiceError, wrap the underlying error's description
+                    return .unknown(underlyingError.localizedDescription)
+                case .invalidResponseType:
+                    // Handle the case where the response is not an HTTPURLResponse
+                    return .unknown("API 返回了无效的响应类型。")
+                }
             } else {
                 return .unknown(error.localizedDescription)
             }
         }()
         
-        self.chatError = chatError
-        self.showingError = true
+        self.chatError = specificError
+        // self.showingError = true // chatError change should trigger overlay
     }
     
-    private func retryLastMessage(_ message: String) {
-        inputText = message
-        sendMessage()
-    }
+    // private func retryLastMessage(_ message: String) { /* ... */ } // Seems unused, can remove if confirmed
     
-    // 新的函数来处理流式响应
     private func handleStreamingResponse(stream: AsyncThrowingStream<String, Error>, messageId: UUID) async throws {
+        var accumulatedContent = ""
+        print("Starting stream processing for message ID: \(messageId)")
         for try await chunk in stream {
-            await updateStreamingMessage(chunk: chunk, messageId: messageId)
+            print("Received stream chunk: \(chunk)")
+            accumulatedContent += chunk
+            await updateStreamingMessage(fullContent: accumulatedContent, messageId: messageId)
+            print("Finished updating UI for chunk.")
         }
-    }
-    
-    // 新的函数来处理流式响应的 UI 更新
-    @MainActor // Ensure this runs on the main actor
-    private func updateStreamingMessage(chunk: String, messageId: UUID) {
-        streamingContent += chunk
-        // Update the streaming message in the UI
-        if let index = messages.firstIndex(where: { $0.message.id == messageId }) {
-            let attributedContent = AttributedString(streamingContent)
+        // Final update to ensure no trailing cursor and content is fully set
+        print("Stream finished for message ID: \(messageId). Final accumulated content size: \(accumulatedContent.count)")
+        if let index = messages.firstIndex(where: { $0.id == messageId }) {
             messages[index] = ChatMessageItem(
-                message: ChatMessage(id: messageId, sender: .gemini, content: streamingContent),
-                attributedContent: attributedContent,
-                timestamp: MessageTimestamp()
+                message: ChatMessage(id: messageId, sender: .gemini, content: accumulatedContent), // Using accumulatedContent
+                attributedContent: convertToMarkdownAttributedString(accumulatedContent), // Converting accumulatedContent to AttributedString
+                timestamp: messages[index].timestamp // Keep original timestamp
             )
+            print("Final message update successful for ID: \(messageId)")
         } else {
-            // If the message's item doesn't exist yet, create it
-            let attributedContent = AttributedString(streamingContent)
-            messages.append(ChatMessageItem(
-                message: ChatMessage(id: messageId, sender: .gemini, content: streamingContent),
-                attributedContent: attributedContent,
-                timestamp: MessageTimestamp()
-            ))
+            print("Error: Could not find message with ID \(messageId) for final update.")
+        }
+    }
+
+    @MainActor 
+    private func updateStreamingMessage(fullContent: String, messageId: UUID) {
+        print("Attempting to update message ID: \(messageId). Current messages count: \(messages.count)")
+        if let index = messages.firstIndex(where: { $0.id == messageId }) {
+            // Add a blinking cursor effect to the streaming content
+            let streamingTextWithCursor = fullContent + "▌"
+            messages[index] = ChatMessageItem(
+                message: ChatMessage(id: messageId, sender: .gemini, content: fullContent), // Store raw full content
+                attributedContent: convertToMarkdownAttributedString(streamingTextWithCursor),
+                timestamp: messages[index].timestamp // Preserve original timestamp for the message
+            )
+            print("Successfully updated message ID: \(messageId) at index \(index)")
+        } else {
+            // This case should ideally not happen if placeholder is correctly added
+            print("Warning: Message with ID \(messageId) not found in messages array during update.")
+            // Optionally add the message if not found (might indicate initial placeholder was missed)
+            // let attributedContent = convertToMarkdownAttributedString(fullContent + "▌")
+            // messages.append(ChatMessageItem(message: ChatMessage(id: messageId, sender: .gemini, content: fullContent), attributedContent: attributedContent, timestamp: MessageTimestamp()))
         }
     }
     
-    // 新的函数来处理发送后的清理工作
     private func cleanupAfterSend() async {
+        print("Starting cleanupAfterSend.")
         await MainActor.run {
-            streamingMessageId = nil
+            streamingMessageId = nil // Clear streaming ID
             isSending = false
+            // The final message content is already set in handleStreamingResponse
+        }
+        print("Finished cleanupAfterSend.")
+    }
+    
+    // Helper to convert markdown string to AttributedString
+    // Helper to convert markdown string to AttributedString
+    private func convertToMarkdownAttributedString(_ markdownString: String) -> AttributedString {
+        do {
+            // 1. 规范化换行符，将 \r\n 和 \r 统一替换为 \n
+            // 这一步确保了后续处理的一致性，尽管大部分现代API会直接返回 \n
+            let normalizedString = markdownString.replacingOccurrences(of: "\r\n", with: "\n")
+                                            .replacingOccurrences(of: "\r", with: "\n")
+
+            // 2. 使用 MarkdownParsingOptions 来保留空白和换行
+            // .inlineOnlyPreservingWhitespace 会将单个 \n 解释为可见的换行符
+            let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+            
+            // 打印处理前的字符串，方便调试
+            // print("begin Normalized Markdown String for AttributedString:\n\(normalizedString)")
+            
+            let attributedString = try AttributedString(markdown: normalizedString, options: options)
+            
+            // 如果需要，可以在这里检查 attributedString 的内容或属性
+            // print("end Normalized Markdown String for AttributedString:\n\(attributedString)")
+            
+            return attributedString
+        } catch {
+            // 如果 Markdown 解析失败，打印错误并回退到普通字符串
+            print("Error parsing markdown for AttributedString: \(error). Falling back to plain string.")
+            // 确保回退时也使用规范化后的字符串
+            return AttributedString(markdownString.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n"))
         }
     }
     
-    // 新的计算属性来分解 body
     @ViewBuilder
     private var primaryContentView: some View {
         VStack(spacing: 0) {
-            // 文章选择器
-            if let article = article {
-                Text(article.title ?? "无标题")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(.gray)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 8)
+            // Article display/picker
+            if let currentArt = selectedArticle { // Use selectedArticle which is synced with @Binding article
+                HStack {
+                    Text(currentArt.title ?? "无标题文章")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(Color(.secondaryLabel))
+                        .lineLimit(1)
+                    Spacer()
+                    // Optional: Button to clear selected article or change
+                    Button {
+                        selectedArticle = nil // Allows user to go back to Picker
+                        article = nil // Update the binding
+                        messages = [] // Clear chat for this article
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(.gray)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(Color(.systemGray6))
             } else {
-                Picker("选择文章", selection: $selectedArticle) {
+                Picker("选择文章开始对话", selection: $selectedArticle) { // Picker now binds to @State selectedArticle
                     articlePickerContent
                 }
                 .pickerStyle(MenuPickerStyle())
                 .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(Color.white.opacity(0.8))
-                .cornerRadius(8)
-                .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
-                .padding(.horizontal, 4)
+                .padding(.vertical, 10)
+                // .background(Color.white.opacity(0.8)) // Removed for consistency
+                // .cornerRadius(8)
+                // .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
+                // .padding(.horizontal, 4) // Removed for consistency
             }
             
+            Divider() // Add a divider
+
             chatContentListView
             
-            // 预设提示词选择区
-            presetPromptsView
+            Divider() // Add a divider
+
+            presetPromptsView // This now has its own internal padding and title
             
             inputBarView
         }
-        .padding(.bottom, 50) // Add padding at the bottom to clear the tab bar area
+        // .padding(.bottom, 50) // This might interfere with TabView safe area. Remove if it does.
     }
 }
 
+// ChatBubble and PreviewProvider, helper function, and extensions remain mostly the same
+// Ensure ChatMessage and Prompt structs are defined or imported.
+// For PreviewProvider, ensure you pass a Binding<String?> for pendingArticleID
 struct ChatBubble: View {
     let message: ChatMessage
     let attributedContent: AttributedString
     let timestamp: MessageTimestamp
-    let isStreaming: Bool
+    let isStreaming: Bool // To indicate if this message is currently streaming
     let onLongPress: () -> Void
     
+    // Add a callback for copy action if needed within the bubble itself
+    let onCopy: (String) -> Void 
+    let onShare: (String) -> Void
+
     @State private var isPressed = false
     
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
             if message.sender == .gemini {
-                Image(systemName: "brain")
-                    .font(.system(size: 24))
-                    .foregroundColor(.blue)
-                    .frame(width: 30, height: 30)
-                    .background(Color.white)
+                Image("gemini_icon") // Assuming you have gemini_icon in your assets
+                    .resizable()
+                    .frame(width: 28, height: 28) // Slightly smaller icon
                     .clipShape(Circle())
-                    .shadow(radius: 2)
             }
             
             VStack(alignment: message.sender == .user ? .trailing : .leading, spacing: 4) {
-                HStack(alignment: .bottom, spacing: 4) {
-                    if message.sender == .user {
-                        Text(timestamp.formattedTime)
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    Text(attributedContent)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(
-                            RoundedRectangle(cornerRadius: 16)
-                                .fill(message.sender == .user ? Color.blue : Color.white)
-                                .shadow(color: message.sender == .user ? Color.blue.opacity(0.3) : Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
-                        )
-                        .foregroundColor(message.sender == .user ? .white : .primary)
-                        .scaleEffect(isPressed ? 0.98 : 1.0)
-                        .animation(.spring(response: 0.3), value: isPressed)
-                    
-                    if message.sender == .gemini {
-                        Text(timestamp.formattedTime)
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondary)
-                    }
-                }
+                // Message Content Bubble
+                Text(attributedContent) // Display the AttributedString
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(message.sender == .user ? Color.blue : Color(.systemGray5))
+                    .foregroundColor(message.sender == .user ? .white : Color(.label))
+                    .cornerRadius(16)
+                    .frame(maxWidth: UIScreen.main.bounds.width * 0.75, alignment: message.sender == .user ? .trailing : .leading) // Limit bubble width
+                    .scaleEffect(isPressed ? 0.98 : 1.0) // Subtle press effect
+                    .textSelection(.enabled)
                 
-                if message.sender == .gemini {
-                    HStack(spacing: 12) {
-                        Button(action: {
-                            UIPasteboard.general.string = message.content
-                        }) {
-                            Label("复制", systemImage: "doc.on.doc")
-                                .font(.system(size: 12))
-                                .foregroundColor(.blue)
-                        }
-                        
-                        Button(action: {
-                            let activityVC = UIActivityViewController(
-                                activityItems: [message.content],
-                                applicationActivities: nil
-                            )
-                            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                               let window = windowScene.windows.first,
-                               let rootVC = window.rootViewController {
-                                rootVC.present(activityVC, animated: true)
-                            }
-                        }) {
-                            Label("分享", systemImage: "square.and.arrow.up")
-                                .font(.system(size: 12))
-                                .foregroundColor(.blue)
+                // Timestamp and Actions (only for Gemini messages for now)
+                HStack(spacing: 12) {
+                    Text(timestamp.formattedTime)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+
+                    if message.sender == .gemini && !isStreaming && !message.content.isEmpty { // Show actions only for non-empty, non-streaming AI messages
+                        Button { onCopy(message.content) } label: {
+                            Image(systemName: "doc.on.doc")
                         }
                     }
-                    .padding(.leading, 4)
                 }
+                .font(.caption) // Make action buttons smaller
+                .foregroundColor(.blue)
+                .padding(.top, 2)
+                .frame(maxWidth: .infinity, alignment: message.sender == .user ? .trailing : .leading)
+
+            }
+            if message.sender == .user {
+                Image("user_icon") // Assuming you have a user_icon
+                    .resizable()
+                    .frame(width: 28, height: 28)
+                    .clipShape(Circle())
             }
         }
-        .padding(.horizontal, 8)
-        .contentShape(Rectangle())
+        .padding(message.sender == .user ? .leading : .trailing, UIScreen.main.bounds.width * 0.1) // Indent non-active side
+        .padding(.vertical, 4) // Reduce vertical padding between messages
+        .contentShape(Rectangle()) // Ensure the whole area is tappable for long press
         .onLongPressGesture(minimumDuration: 0.5, maximumDistance: 10) {
             onLongPress()
         } onPressingChanged: { isPressing in
-            withAnimation(.spring(response: 0.3)) {
+            withAnimation(.spring(response: 0.2, dampingFraction: 0.6)) { // Adjusted animation
                 isPressed = isPressing
             }
         }
     }
 }
 
+
 struct AIChatView_Previews: PreviewProvider {
     static var previews: some View {
         let context = PersistenceController.preview.container.viewContext
-        // Create a sample article for preview
         let article = Article(context: context)
         article.title = "示例文章"
         article.content = "这是示例文章的内容"
+        try? context.save() // Save to get a permanent ID if needed by init logic
+        
+        // Prepare some mock messages
+        let mockMessages = [
+            ChatMessageItem(message: ChatMessage(id: UUID(), sender: .user, content: "你好，AI！"), attributedContent: AttributedString("你好，AI！"), timestamp: MessageTimestamp(date: Date().addingTimeInterval(-600))),
+            ChatMessageItem(message: ChatMessage(id: UUID(), sender: .gemini, content: "你好！有什么可以帮助你的吗？"), attributedContent: AttributedString("你好！有什么可以帮助你的吗？"), timestamp: MessageTimestamp(date: Date().addingTimeInterval(-540)))
+        ]
+        
+        // Create a version of AIChatView that accepts messages for preview
+        // This might require a temporary init or a way to inject state for preview
+        
         return Group {
-            // Preview with article
             AIChatView(article: .constant(article))
                 .environment(\.managedObjectContext, context)
+                .previewDisplayName("With Article")
             
-            // Preview without article
             AIChatView(article: .constant(nil))
                 .environment(\.managedObjectContext, context)
+                .previewDisplayName("No Article (Picker)")
         }
     }
 }
 
 // MARK: - Helper Function for AIChatView (outside the struct)
 
-// Function to update inputText based on selected prompts
-private func updateInputText(selectedPrompts: Set<Prompt>, inputText: inout String) {
-    var combinedText = ""
-    let sortedPrompts = selectedPrompts.sorted { $0.title < $1.title } // Sort for consistent order
-    
-    if selectedPrompts.count == 1, let prompt = selectedPrompts.first, prompt.title.lowercased().hasSuffix("[x]") {
-        // Special case: single prompt with [x], combine with clipboard
-        if let clipboardContent = UIPasteboard.general.string, !clipboardContent.isEmpty {
-            combinedText = prompt.content + "\n\n" + clipboardContent
-        } else {
-            combinedText = prompt.content
-        }
-    } else {
-        // Multiple prompts or single prompt without [x]
-        combinedText = sortedPrompts.map { $0.content }.joined(separator: "\n")
-    }
-    
-    inputText = combinedText
-}
+// Function to update inputText based on selected prompts (kept outside for clarity)
+// This function is now called from within AIChatView, so it needs access to its properties
+// or have them passed as parameters. For now, it's a global helper.
+// Consider making it a private func inside AIChatView or passing $inputText as @Binding.
 
 // MARK: - 视图分解
 
 extension AIChatView {
-    // 新的计算属性来分解聊天内容区
-    @ViewBuilder
-    private var chatContentListView: some View {
+    @ViewBuilder private var chatContentListView: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(spacing: 16) {
+                LazyVStack(spacing: 10) { // Reduced spacing
                     ForEach(messages) { messageItem in
                         messageRow(
                             message: messageItem.message,
                             attributedContent: messageItem.attributedContent,
                             timestamp: messageItem.timestamp,
-                            proxy: proxy
+                            proxy: proxy // Pass proxy if needed by messageRow
                         )
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 8)
-                .padding(.bottom, inputHeight + 16) // Add padding at the bottom
+                .padding(.horizontal, 10) // Consistent horizontal padding
+                .padding(.top, 10)
+                // .padding(.bottom, inputHeight + 16) // Padding at bottom handled by overall layout
             }
-            .onChange(of: messages) { newMessages in
-                if let lastMessage = newMessages.last {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                        withAnimation {
+            .onChange(of: messages.count) { _ in // Use messages.count to re-trigger on new message
+                if let lastMessage = messages.last {
+                    DispatchQueue.main.async { // Ensure UI updates on main thread
+                        withAnimation(.spring()) { // Smoother scroll
                             proxy.scrollTo(lastMessage.id, anchor: .bottom)
                         }
                     }
                 }
             }
         }
-        .background(Color.clear)
-        .frame(maxHeight: .infinity)
+        .background(Color.clear) // Ensure ScrollView background is clear
+        // .frame(maxHeight: .infinity) // Let VStack manage height distribution
     }
     
-    // Helper computed property for a single message row
     private func messageRow(
         message: ChatMessage,
         attributedContent: AttributedString,
         timestamp: MessageTimestamp,
-        proxy: ScrollViewProxy
+        proxy: ScrollViewProxy // proxy might not be needed here if not used
     ) -> some View {
         ChatBubble(
             message: message,
             attributedContent: attributedContent,
             timestamp: timestamp,
-            isStreaming: streamingMessageId == message.id
-        ) {
-            selectedMessageForMenu = message
-            showingMessageMenu = true
-        }
-        .id(message.id)
-        .frame(maxWidth: .infinity, alignment: message.sender == .user ? .trailing : .leading)
-        .contextMenu {
-            Button(action: { UIPasteboard.general.string = message.content }) {
-                Label("复制", systemImage: "doc.on.doc")
+            isStreaming: streamingMessageId == message.id && message.sender == .gemini,
+            onLongPress: {
+                selectedMessageForMenu = message
+                // showingMessageMenu = true // Trigger contextMenu directly or a custom menu
+            },
+            onCopy: { contentToCopy in
+                copyMessageContent(content: contentToCopy)
+            },
+            onShare: { contentToShare in
+                shareContent(contentToShare)
             }
-            if message.sender == .gemini {
-                Button(action: {
-                    let activityVC = UIActivityViewController(activityItems: [message.content], applicationActivities: nil)
-                    if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                       let window = windowScene.windows.first,
-                       let rootVC = window.rootViewController {
-                        rootVC.present(activityVC, animated: true)
-                    }
-                }) { Label("分享", systemImage: "square.and.arrow.up") }
+        )
+        .id(message.id) // Ensure each row has a unique ID for ScrollViewReader
+        // .frame(maxWidth: .infinity, alignment: message.sender == .user ? .trailing : .leading) // Handled in ChatBubble
+        .contextMenu { // Using standard context menu
+            Button { copyMessageContent(content: message.content) } label: { Label("复制", systemImage: "doc.on.doc") }
+            if message.sender == .gemini { // Share only for Gemini messages
+                Button { shareContent(message.content) } label: { Label("分享", systemImage: "square.and.arrow.up") }
             }
         }
     }
     
-    // 新的计算属性来分解输入区域
+    private func shareContent(_ content: String) {
+        let activityVC = UIActivityViewController(activityItems: [content], applicationActivities: nil)
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+           let window = windowScene.windows.first(where: { $0.isKeyWindow }), // Get key window
+           let rootVC = window.rootViewController {
+            rootVC.present(activityVC, animated: true)
+        }
+    }
+    
     @ViewBuilder
     private var inputBarView: some View {
-        HStack(alignment: .bottom, spacing: 10) {
-            ZStack(alignment: .topLeading) {
+        VStack(spacing: 0) { // Wrap in VStack to allow for potential elements above TextEditor
+            Divider() // Visual separation
+            HStack(alignment: .bottom, spacing: 10) {
                 TextEditor(text: $inputText)
-                    .frame(minHeight: 35, maxHeight: 120)
-                    .padding(8)
-                    .background(
-                        RoundedRectangle(cornerRadius: 14)
-                            .fill(Color.white.opacity(0.9))
-                            .shadow(color: isInputFocused ? Color.blue.opacity(0.2) : Color.clear, radius: 4, x: 0, y: 2)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14)
-                            .stroke(isInputFocused ? Color.blue : Color(.systemGray4), lineWidth: 1)
-                    )
-                    .font(.system(size: 15))
-                    .foregroundColor(Color(.label))
-                    .onChange(of: inputText) { _ in
-                        withAnimation(.spring(response: 0.3)) {
-                            // 根据内容自动调整高度
-                            let size = CGSize(width: UIScreen.main.bounds.width - 100, height: .infinity)
-                            let estimatedSize = inputText.boundingRect(
-                                with: size,
-                                options: [.usesLineFragmentOrigin, .usesFontLeading],
-                                attributes: [.font: UIFont.systemFont(ofSize: 15)],
-                                context: nil
-                            )
-                            inputHeight = min(max(35, estimatedSize.height + 16), 120)
+                    .frame(minHeight: inputHeight, maxHeight: 120) // Use calculated inputHeight
+                    .padding(.horizontal, 8) // Internal padding for TextEditor text
+                    .padding(.vertical, 6)   // Internal padding for TextEditor text
+                    .background(Color(.systemGray6)) // Background for TextEditor area
+                    .clipShape(RoundedRectangle(cornerRadius: 10)) // Clip shape for TextEditor
+                    .font(.system(size: 16)) // Consistent font size
+                    .onReceive(NotificationCenter.default.publisher(for: UITextView.textDidBeginEditingNotification)) { _ in isInputFocused = true }
+                    .onReceive(NotificationCenter.default.publisher(for: UITextView.textDidEndEditingNotification)) { _ in isInputFocused = false }
+                    .onChange(of: inputText) { newValue in // Using new syntax for onChange
+                        // Auto-adjust height of TextEditor
+                        let newHeight = calculateTextEditorHeight(text: newValue)
+                        if abs(inputHeight - newHeight) > 1 { // Only update if change is significant
+                            withAnimation(.spring(response: 0.2, dampingFraction: 0.7)) {
+                                inputHeight = newHeight
+                            }
                         }
+                        isComposing = !newValue.isEmpty // Simplified composing state
                     }
-                    .onReceive(NotificationCenter.default.publisher(for: UITextView.textDidBeginEditingNotification)) { _ in
-                        withAnimation(.spring(response: 0.3)) {
-                            isInputFocused = true
-                        }
-                    }
-                    .onReceive(NotificationCenter.default.publisher(for: UITextView.textDidEndEditingNotification)) { _ in
-                        withAnimation(.spring(response: 0.3)) {
-                            isInputFocused = false
-                        }
-                    }
-                    .onReceive(NotificationCenter.default.publisher(for: UITextView.textDidChangeNotification)) { _ in
-                        isComposing = true
-                        // 重置输入状态
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                            isComposing = false
-                        }
-                    }
-                
-                if inputText.isEmpty {
-                    Text("输入您的问题...")
-                        .foregroundColor(Color(.systemGray))
-                        .font(.system(size: 15))
-                        .padding(.top, 16)
-                        .padding(.leading, 16)
-                        .opacity(isInputFocused ? 0.5 : 1)
-                }
-            }
-            .frame(height: inputHeight)
-            
-            // 发送按钮
-            Button(action: sendMessage) {
-                ZStack {
-                    Circle()
-                        .fill(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color(.systemGray5) : Color.blue)
-                        .frame(width: 32, height: 32)
-                        .shadow(color: isInputFocused ? Color.blue.opacity(0.3) : Color.clear, radius: 4, x: 0, y: 2)
-                    
-                    Image(systemName: isSending ? "arrow.up.circle" : "arrow.up.circle.fill")
+                    // Placeholder logic directly on ZStack if preferred, or overlay
+                    .overlay(alignment: .topLeading) {
+                         if inputText.isEmpty {
+                             Text("输入您的问题...")
+                                 .foregroundColor(Color(.placeholderText))
+                                 .font(.system(size: 16))
+                                 .padding(.horizontal, 12) // Match TextEditor's internal padding
+                                 .padding(.vertical, 10)   // Match TextEditor's internal padding
+                                 .allowsHitTesting(false) // Let taps pass through to TextEditor
+                         }
+                     }
+
+                Button(action: sendMessage) {
+                    Image(systemName: "arrow.up.circle.fill")
                         .resizable()
                         .scaledToFit()
                         .frame(width: 32, height: 32)
-                        .foregroundColor(.white)
-                        .rotationEffect(.degrees(isSending ? 360 : 0))
-                        .animation(isSending ? Animation.linear(duration: 1).repeatForever(autoreverses: false) : .default, value: isSending)
+                        .foregroundColor(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .gray : .blue)
                 }
+                .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSending)
             }
-            .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSending || isComposing)
-            .scaleEffect(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.9 : 1.0)
-            .animation(.spring(response: 0.3), value: inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            // .background(Color(.systemGray6)) // Background for the entire input bar
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(
-            Color.white.opacity(0.8)
-                .blur(radius: 2)
-                .overlay(
-                    Rectangle()
-                        .frame(height: 1)
-                        .foregroundColor(Color(.systemGray5)),
-                    alignment: .top
-                )
-        )
-        .animation(.spring(response: 0.3), value: isInputFocused)
+        // .background(Material.thin) // Apply material to the whole input bar container for a modern look
+    }
+    
+    // Helper to calculate TextEditor height
+    private func calculateTextEditorHeight(text: String) -> CGFloat {
+        let textView = UITextView()
+        textView.text = text
+        textView.font = UIFont.systemFont(ofSize: 16) // Match TextEditor font
+        textView.textContainerInset = UIEdgeInsets(top: 6, left: 8, bottom: 6, right: 8) // Match padding
+        let fixedWidth = UIScreen.main.bounds.width - 24 /* H paddings */ - 32 /* Button width */ - 10 /* Spacing */ - 16 /* TextEditor internal H paddings */
+        let size = textView.sizeThatFits(CGSize(width: fixedWidth, height: .greatestFiniteMagnitude))
+        return min(max(35, size.height), 120) // Clamp between min and max height
     }
 } 

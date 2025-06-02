@@ -146,7 +146,6 @@ struct ArticleListView: View {
             operationToolbarView
                 .padding(.horizontal, 20)
                 .padding(.vertical, 8)
-                .background(Color.white.opacity(0.5).blur(radius: 2))
 
             articleListContent
         }

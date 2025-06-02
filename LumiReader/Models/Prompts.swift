@@ -56,9 +56,9 @@ public extension Prompt {
         // 新颖见解
         Prompt(title: "新颖见解", content: "找出这篇文章中新颖或反直觉的观点"),
         // 科普[x]
-        Prompt(title: "科普[x]", content: "大白话科普一下"),
+        Prompt(title: "科普[x]", content: "大白话科普一下:\n[x]"),
         // 展开[x]
-        Prompt(title: "展开[x]", content: "对以下内容请展开说说:\n")
+        Prompt(title: "展开[x]", content: "对以下内容请展开说说:\n[x]")
     ]
 
     // Define the public static default batch summary prompt
