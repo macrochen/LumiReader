@@ -575,39 +575,14 @@ struct AIChatView: View {
     private var primaryContentView: some View {
         VStack(spacing: 0) {
             // Article display/picker
-            if let currentArt = selectedArticle { // Use selectedArticle which is synced with @Binding article
-                HStack {
-                    Text(currentArt.title ?? "无标题文章")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(Color(.secondaryLabel))
-                        .lineLimit(1)
-                    Spacer()
-                    // Optional: Button to clear selected article or change
-                    Button {
-                        selectedArticle = nil // Allows user to go back to Picker
-                        article = nil // Update the binding
-                        messages = [] // Clear chat for this article
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.gray)
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .background(Color(.systemGray6))
-            } else {
-                Picker("选择文章开始对话", selection: $selectedArticle) { // Picker now binds to @State selectedArticle
-                    articlePickerContent
-                }
-                .pickerStyle(MenuPickerStyle())
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                // .background(Color.white.opacity(0.8)) // Removed for consistency
-                // .cornerRadius(8)
-                // .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
-                // .padding(.horizontal, 4) // Removed for consistency
+            // Always display the Picker
+            Picker("选择文章开始对话", selection: $selectedArticle) { // Picker now binds to @State selectedArticle
+                articlePickerContent
             }
-            
+            .pickerStyle(MenuPickerStyle())
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+
             Divider() // Add a divider
 
             chatContentListView

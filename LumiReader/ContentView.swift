@@ -8,6 +8,10 @@
 import SwiftUI
 import CoreData
 
+enum TabType {
+    case articleList, summary, aiChat, settings
+}
+
 struct ContentView: View {
     @State private var selectedTab: TabType = .articleList
     @State private var selectedArticleForChat: Article? = nil

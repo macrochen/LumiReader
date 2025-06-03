@@ -29,7 +29,6 @@ struct ArticleListView: View {
 
     @State private var showingImportOptions = false
     @State private var isImportingLocalFile = false
-    @State private var showingWifiImportView = false
 
     @State private var importError: String? // Replaces errorMessage for import-specific errors for clarity
     @State private var isSummarizing = false
@@ -49,7 +48,7 @@ struct ArticleListView: View {
                 .foregroundColor(Color(.label))
             Spacer()
             Button(action: {
-                showingImportOptions = true
+                isImportingLocalFile = true // Directly trigger file import
             }) {
                 Image(systemName: "square.and.arrow.down")
                     .font(.system(size: 24, weight: .medium))
@@ -61,6 +60,8 @@ struct ArticleListView: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 6)
+        .navigationTitle("设置")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     // Computed property for the operation toolbar
@@ -211,33 +212,12 @@ struct ArticleListView: View {
             } message: {
                 Text("成功导入 \(importedCount) 篇文章。")
             }
-            .sheet(isPresented: $showingImportOptions) {
-                ImportOptionsView(
-                    onImportLocal: {
-                        isImportingLocalFile = true
-                        // showingImportOptions = false // sheet dismisses automatically
-                    },
-                    onImportWifi: {
-                        showingWifiImportView = true
-                        // showingImportOptions = false // sheet dismisses automatically
-                    }
-                )
-                .presentationDetents([.height(180), .medium]) // Adjusted presentation detents
-            }
             .fileImporter(
                 isPresented: $isImportingLocalFile,
                 allowedContentTypes: [.json],
                 allowsMultipleSelection: false,
-                onCompletion: handleFileImportResult // Moved logic to a separate method
+                onCompletion: handleFileImportResult
             )
-            .sheet(isPresented: $showingWifiImportView) {
-                WifiImportView()
-                    .environment(\.managedObjectContext, viewContext)
-            }
-            // .sheet(item: $selectedArticleForChat) { _ in
-            //     AIChatView(article: $selectedArticleForChat)
-            //         .environment(\.managedObjectContext, viewContext)
-            // }
     }
 
     // MARK: - Action Methods
@@ -510,29 +490,24 @@ struct ArticleCard: View {
     }
 }
 
-// MARK: - ImportOptionsView (No changes, included for completeness)
+// MARK: - ImportOptionsView
 struct ImportOptionsView: View {
     let onImportLocal: () -> Void
-    let onImportWifi: () -> Void
     @Environment(\.dismiss) var dismiss
 
     var body: some View {
-        NavigationView { // NavigationView is good for sheets that need a title/toolbar
+        NavigationView {
             List {
                 Button("从本地文件导入") {
+                    dismiss()
                     onImportLocal()
-                    // dismiss() // No longer needed, sheet dismisses via onImportLocal changing state
-                }
-                Button("通过 WiFi 导入") {
-                    onImportWifi()
-                    // dismiss() // No longer needed
                 }
             }
             .navigationTitle("选择导入方式")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) { // Or .navigationBarTrailing
-                    Button("完成") { // Changed "取消" to "完成" or "关闭" as it's more of a selection
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") {
                         dismiss()
                     }
                 }
