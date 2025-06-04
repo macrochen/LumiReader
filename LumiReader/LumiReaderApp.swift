@@ -11,7 +11,7 @@ import SwiftUI
 struct LumiReaderApp: App {
     // Initialize PersistenceController and get the viewContext
     let persistenceController = PersistenceController.shared
-    
+
     var body: some Scene {
         WindowGroup {
             ContentView()

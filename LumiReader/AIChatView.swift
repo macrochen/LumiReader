@@ -6,6 +6,8 @@ import UIKit // Import UIKit for UIPasteboard
 // Define a struct for preset prompts (already exists, ensure Codable if needed for persistence later)
 // struct PresetPrompt: Identifiable, Hashable { ... }
 
+// 移除 SelectableUIKitTextView 结构体定义
+
 // 添加消息时间戳结构
 struct MessageTimestamp: Equatable {
     let date: Date
@@ -182,17 +184,12 @@ struct AIChatView: View {
     @State private var messages: [ChatMessageItem] = []
     @State private var inputText: String = ""
     @State private var isSending = false
-    // @State private var errorMessage: String? // Replaced by chatError
-    // @State private var showingError = false // Replaced by chatError
     
     @State private var selectedPrompts: Set<Prompt> = []
     @AppStorage("aiPromptsData") private var aiPromptsData: Data = Data()
-    @State private var presetPrompts: [Prompt] = Prompt.DEFAULT_PRESET_PROMPTS // Initialize with default
+    @State private var presetPrompts: [Prompt] = Prompt.DEFAULT_PRESET_PROMPTS
     
-    @State private var clipboardContent: String = "" // Not directly used in this refactor but kept
-    
-    @State private var streamingMessageId: UUID?
-    @State private var streamingContent: String = ""
+    @State private var clipboardContent: String = ""
     
     @State private var chatError: ChatError?
     @State private var lastFailedMessage: String?
@@ -206,7 +203,10 @@ struct AIChatView: View {
     
     @State private var appearCount = 0
 
-
+    // 【新增】流式输出相关的状态变量
+    @State private var streamingMessageId: UUID? // 正在流式输出的消息ID
+    @State private var streamingContent: String = "" // 当前流式输出的内容
+    
     // Initialize and sync selectedArticle with the binding `article`
     init(article: Binding<Article?>) {
         self._article = article
@@ -286,9 +286,36 @@ struct AIChatView: View {
     @ViewBuilder
     private var articlePickerContent: some View {
         Text("-- 选择文章开始对话 --").tag(nil as Article?)
-        ForEach(articles.prefix(10)) { articleItem in // Renamed to avoid conflict
+        ForEach(articles) { articleItem in // 显示所有文章
             Text(articleItem.title ?? "无标题").tag(articleItem as Article?)
         }
+    }
+    
+    @ViewBuilder
+    private var primaryContentView: some View {
+        VStack(spacing: 0) {
+            // Article display/picker
+            // Always display the Picker
+            Picker("选择文章开始对话", selection: $selectedArticle) { // Picker now binds to @State selectedArticle
+                articlePickerContent
+            }
+            .pickerStyle(MenuPickerStyle())
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+
+            Divider() // Add a divider
+
+            chatContentListView
+            .frame(maxHeight: .infinity) // 【新增/修改】让聊天内容列表占据所有剩余空间
+
+
+            Divider() // Add a divider
+
+            presetPromptsView // This now has its own internal padding and title
+
+            inputBarView
+        }
+        // .padding(.bottom, 50) // This might interfere with TabView safe area. Remove if it does.
     }
     
     var body: some View {
@@ -313,15 +340,19 @@ struct AIChatView: View {
             }
         }
         .onChange(of: article) { newArticleFromBinding in
-             print("AIChatView @Binding article changed to: \(newArticleFromBinding?.title ?? "nil")")
+            print("AIChatView @Binding article changed to: \(newArticleFromBinding?.title ?? "nil")")
             if selectedArticle?.objectID != newArticleFromBinding?.objectID {
                 selectedArticle = newArticleFromBinding
-                if newArticleFromBinding != nil {
-                     messages = [] // Clear messages if article changes
-                     inputText = ""
-                     chatError = nil
-                }
+                messages = [] // Clear messages if article changes
+                inputText = ""
+                chatError = nil
             }
+        }
+        .onChange(of: selectedArticle) { newSelectedArticle in
+            print("AIChatView selectedArticle changed to: \(newSelectedArticle?.title ?? "nil")")
+            messages = [] // Clear messages when selected article changes
+            inputText = ""
+            chatError = nil
         }
         .alert(item: $chatError) { error in
             Alert(
@@ -356,7 +387,7 @@ struct AIChatView: View {
     
     private func sendMessage() {
         let trimmedInput = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedInput.isEmpty, !isSending, let articleToChat = selectedArticle else { // Use selectedArticle
+        guard !trimmedInput.isEmpty, !isSending, let articleToChat = selectedArticle else {
             if selectedArticle == nil {
                 self.chatError = .unknown("请先选择一篇文章开始对话。")
             }
@@ -372,29 +403,25 @@ struct AIChatView: View {
         isSending = true
         inputText = ""
         lastFailedMessage = trimmedInput
-        selectedPrompts = [] // Clear selected prompts after sending
+        selectedPrompts = []
         
         let userMessage = ChatMessage(id: UUID(), sender: .user, content: trimmedInput)
-        // Attempt to create AttributedString, fallback to plain string if markdown parsing fails
-        var attributedUserContent: AttributedString
-        do {
-            attributedUserContent = try AttributedString(markdown: trimmedInput)
-        } catch {
-            attributedUserContent = AttributedString(trimmedInput)
-        }
+        let attributedUserContent = convertToMarkdownAttributedString(trimmedInput)
         let timestamp = MessageTimestamp()
         messages.append(ChatMessageItem(message: userMessage, attributedContent: attributedUserContent, timestamp: timestamp))
         
+        // 【新增】为流式 AI 回复添加一个占位符消息
         let aiMessageId = UUID()
         streamingMessageId = aiMessageId
         streamingContent = ""
-        // Add a temporary streaming placeholder to messages
+        // 使用一个临时的 AttributedString，例如显示一个光标
+        let placeholderAttributedContent = convertToMarkdownAttributedString("▌")
         let placeholderAIMessage = ChatMessage(id: aiMessageId, sender: .gemini, content: "")
-        messages.append(ChatMessageItem(message: placeholderAIMessage, attributedContent: AttributedString("▌"), timestamp: MessageTimestamp()))
+        messages.append(ChatMessageItem(message: placeholderAIMessage, attributedContent: placeholderAttributedContent, timestamp: MessageTimestamp()))
 
+        // 【修改】使用流式 API
+        let apiHistory = messages.dropLast().map { $0.message } // 排除掉最新的占位符消息
 
-        let apiHistory = messages.dropLast().map { $0.message } // Exclude the placeholder
-        
         Task {
             do {
                 let stream = try await GeminiService.chatWithGemini(
@@ -404,13 +431,14 @@ struct AIChatView: View {
                     apiKey: apiKey
                 )
                 
+                // 【修改】处理流式响应
                 try await handleStreamingResponse(stream: stream, messageId: aiMessageId)
                 await cleanupAfterSend()
             } catch {
                 await MainActor.run {
-                    // Remove placeholder on error before showing error
+                    // 【新增】如果在流式过程中发生错误，移除占位符消息
                     if let index = messages.firstIndex(where: { $0.id == aiMessageId }) {
-                        messages.remove(at: index)
+                         messages.remove(at: index)
                     }
                     handleError(error)
                 }
@@ -448,7 +476,6 @@ struct AIChatView: View {
     }
     
     private func handleError(_ error: Error) {
-        streamingMessageId = nil
         isSending = false
         
         let specificError: ChatError = {
@@ -482,118 +509,55 @@ struct AIChatView: View {
         }()
         
         self.chatError = specificError
-        // self.showingError = true // chatError change should trigger overlay
     }
     
-    // private func retryLastMessage(_ message: String) { /* ... */ } // Seems unused, can remove if confirmed
-    
+    private func cleanupAfterSend() async {
+        // 【修改】清空 streamingMessageId
+        await MainActor.run { streamingMessageId = nil; isSending = false }
+    }
+
+    // 【新增】处理流式响应
     private func handleStreamingResponse(stream: AsyncThrowingStream<String, Error>, messageId: UUID) async throws {
         var accumulatedContent = ""
-        print("Starting stream processing for message ID: \(messageId)")
         for try await chunk in stream {
-            print("Received stream chunk: \(chunk)")
             accumulatedContent += chunk
             await updateStreamingMessage(fullContent: accumulatedContent, messageId: messageId)
-            print("Finished updating UI for chunk.")
         }
         // Final update to ensure no trailing cursor and content is fully set
-        print("Stream finished for message ID: \(messageId). Final accumulated content size: \(accumulatedContent.count)")
         if let index = messages.firstIndex(where: { $0.id == messageId }) {
             messages[index] = ChatMessageItem(
-                message: ChatMessage(id: messageId, sender: .gemini, content: accumulatedContent), // Using accumulatedContent
-                attributedContent: convertToMarkdownAttributedString(accumulatedContent), // Converting accumulatedContent to AttributedString
+                message: ChatMessage(id: messageId, sender: .gemini, content: accumulatedContent),
+                attributedContent: convertToMarkdownAttributedString(accumulatedContent),
                 timestamp: messages[index].timestamp // Keep original timestamp
             )
-            print("Final message update successful for ID: \(messageId)")
-        } else {
-            print("Error: Could not find message with ID \(messageId) for final update.")
         }
     }
 
-    @MainActor 
+    // 【新增】在主线程更新流式消息内容
+    @MainActor
     private func updateStreamingMessage(fullContent: String, messageId: UUID) {
-        print("Attempting to update message ID: \(messageId). Current messages count: \(messages.count)")
         if let index = messages.firstIndex(where: { $0.id == messageId }) {
             // Add a blinking cursor effect to the streaming content
             let streamingTextWithCursor = fullContent + "▌"
             messages[index] = ChatMessageItem(
                 message: ChatMessage(id: messageId, sender: .gemini, content: fullContent), // Store raw full content
                 attributedContent: convertToMarkdownAttributedString(streamingTextWithCursor),
-                timestamp: messages[index].timestamp // Preserve original timestamp for the message
+                timestamp: messages[index].timestamp
             )
-            print("Successfully updated message ID: \(messageId) at index \(index)")
-        } else {
-            // This case should ideally not happen if placeholder is correctly added
-            print("Warning: Message with ID \(messageId) not found in messages array during update.")
-            // Optionally add the message if not found (might indicate initial placeholder was missed)
-            // let attributedContent = convertToMarkdownAttributedString(fullContent + "▌")
-            // messages.append(ChatMessageItem(message: ChatMessage(id: messageId, sender: .gemini, content: fullContent), attributedContent: attributedContent, timestamp: MessageTimestamp()))
         }
     }
-    
-    private func cleanupAfterSend() async {
-        print("Starting cleanupAfterSend.")
-        await MainActor.run {
-            streamingMessageId = nil // Clear streaming ID
-            isSending = false
-            // The final message content is already set in handleStreamingResponse
-        }
-        print("Finished cleanupAfterSend.")
-    }
-    
-    // Helper to convert markdown string to AttributedString
+
     // Helper to convert markdown string to AttributedString
     private func convertToMarkdownAttributedString(_ markdownString: String) -> AttributedString {
         do {
-            // 1. 规范化换行符，将 \r\n 和 \r 统一替换为 \n
-            // 这一步确保了后续处理的一致性，尽管大部分现代API会直接返回 \n
             let normalizedString = markdownString.replacingOccurrences(of: "\r\n", with: "\n")
                                             .replacingOccurrences(of: "\r", with: "\n")
-
-            // 2. 使用 MarkdownParsingOptions 来保留空白和换行
-            // .inlineOnlyPreservingWhitespace 会将单个 \n 解释为可见的换行符
             let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-            
-            // 打印处理前的字符串，方便调试
-            // print("begin Normalized Markdown String for AttributedString:\n\(normalizedString)")
-            
-            let attributedString = try AttributedString(markdown: normalizedString, options: options)
-            
-            // 如果需要，可以在这里检查 attributedString 的内容或属性
-            // print("end Normalized Markdown String for AttributedString:\n\(attributedString)")
-            
-            return attributedString
+            return try AttributedString(markdown: normalizedString, options: options)
         } catch {
-            // 如果 Markdown 解析失败，打印错误并回退到普通字符串
             print("Error parsing markdown for AttributedString: \(error). Falling back to plain string.")
-            // 确保回退时也使用规范化后的字符串
             return AttributedString(markdownString.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n"))
         }
-    }
-    
-    @ViewBuilder
-    private var primaryContentView: some View {
-        VStack(spacing: 0) {
-            // Article display/picker
-            // Always display the Picker
-            Picker("选择文章开始对话", selection: $selectedArticle) { // Picker now binds to @State selectedArticle
-                articlePickerContent
-            }
-            .pickerStyle(MenuPickerStyle())
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-
-            Divider() // Add a divider
-
-            chatContentListView
-            
-            Divider() // Add a divider
-
-            presetPromptsView // This now has its own internal padding and title
-            
-            inputBarView
-        }
-        // .padding(.bottom, 50) // This might interfere with TabView safe area. Remove if it does.
     }
 }
 
@@ -604,71 +568,97 @@ struct ChatBubble: View {
     let message: ChatMessage
     let attributedContent: AttributedString
     let timestamp: MessageTimestamp
-    let isStreaming: Bool // To indicate if this message is currently streaming
-    let onLongPress: () -> Void
+    // 【新增】指示当前消息是否正在流式输出
+    let isStreaming: Bool
     
-    // Add a callback for copy action if needed within the bubble itself
-    let onCopy: (String) -> Void 
-    let onShare: (String) -> Void
-
+    // Callbacks for actions within the bubble
+    let onCopy: (String) -> Void
+    
+    // Article info to include in combined copy
+    let articleTitle: String?
+    let articleLink: String?
+    
     @State private var isPressed = false
+
+    // 你可能需要根据你的 App 主题或者具体需求来定义这些字体和颜色
+    private var bubbleFont: UIFont {
+        // 例如，可以根据消息发送者或其他条件返回不同的字体
+        return UIFont.systemFont(ofSize: 16) // 假设默认字体大小为16
+    }
+
+    private var bubbleTextColor: UIColor {
+        return message.sender == .user ? UIColor.white : UIColor.label // .label 对应系统深浅模式的文字颜色
+    }
     
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
             if message.sender == .gemini {
-                Image("gemini_icon") // Assuming you have gemini_icon in your assets
+                Image("gemini_icon")
                     .resizable()
-                    .frame(width: 28, height: 28) // Slightly smaller icon
+                    .frame(width: 28, height: 28)
                     .clipShape(Circle())
             }
             
             VStack(alignment: message.sender == .user ? .trailing : .leading, spacing: 4) {
-                // Message Content Bubble
-                Text(attributedContent) // Display the AttributedString
+                // 【修改】使用 Text 组件替代 SelectableUIKitTextView
+                Text(attributedContent)
+                    // 【新增】启用文本选择
+                    .textSelection(.enabled)
+                    // 应用原 SelectableUIKitTextView 的修饰符
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .background(message.sender == .user ? Color.blue : Color(.systemGray5))
-                    .foregroundColor(message.sender == .user ? .white : Color(.label))
                     .cornerRadius(16)
-                    .frame(maxWidth: UIScreen.main.bounds.width * 0.75, alignment: message.sender == .user ? .trailing : .leading) // Limit bubble width
-                    .scaleEffect(isPressed ? 0.98 : 1.0) // Subtle press effect
-                    .textSelection(.enabled)
+                    // 应用外部宽度约束和对齐
+                    .frame(maxWidth: UIScreen.main.bounds.width * 0.75, alignment: message.sender == .user ? .trailing : .leading)
+                    // Text 默认支持高度自适应和换行，fixedSize vertical true 可以加强这一点
+                    .fixedSize(horizontal: false, vertical: true)
                 
-                // Timestamp and Actions (only for Gemini messages for now)
+                // Timestamp and Actions (only for Gemini messages for now) - Moved outside the Text modifiers
                 HStack(spacing: 12) {
                     Text(timestamp.formattedTime)
                         .font(.caption2)
                         .foregroundColor(.secondary)
+                    
+                    if message.sender == .gemini && !message.content.isEmpty {
+                        // 【修改】仅当消息不是流式输出中时才显示复制按钮
+                        if !isStreaming {
+                            // Copy message content
+                            Button { onCopy(message.content) } label: {
+                                Image(systemName: "doc.on.doc")
+                            }
 
-                    if message.sender == .gemini && !isStreaming && !message.content.isEmpty { // Show actions only for non-empty, non-streaming AI messages
-                        Button { onCopy(message.content) } label: {
-                            Image(systemName: "doc.on.doc")
+                            // Copy article info + message content
+                            Button {
+                                var combinedContent = ""
+                                combinedContent += " \(articleTitle ?? "无标题")"
+                                if let link = articleLink, !link.isEmpty {
+                                    combinedContent += "(\(link))\n"
+                                }
+                                combinedContent += message.content // 使用 message.content 获取纯文本
+                                onCopy(combinedContent)
+                            } label: {
+                                Image(systemName: "doc.on.clipboard.fill")
+                            }
                         }
                     }
                 }
-                .font(.caption) // Make action buttons smaller
+                .font(.caption)
                 .foregroundColor(.blue)
                 .padding(.top, 2)
                 .frame(maxWidth: .infinity, alignment: message.sender == .user ? .trailing : .leading)
-
+                .layoutPriority(0)
             }
+            
             if message.sender == .user {
-                Image("user_icon") // Assuming you have a user_icon
+                Image("user_icon")
                     .resizable()
                     .frame(width: 28, height: 28)
                     .clipShape(Circle())
             }
         }
-        .padding(message.sender == .user ? .leading : .trailing, UIScreen.main.bounds.width * 0.1) // Indent non-active side
-        .padding(.vertical, 4) // Reduce vertical padding between messages
-        .contentShape(Rectangle()) // Ensure the whole area is tappable for long press
-        .onLongPressGesture(minimumDuration: 0.5, maximumDistance: 10) {
-            onLongPress()
-        } onPressingChanged: { isPressing in
-            withAnimation(.spring(response: 0.2, dampingFraction: 0.6)) { // Adjusted animation
-                isPressed = isPressing
-            }
-        }
+        .padding(message.sender == .user ? .leading : .trailing, UIScreen.main.bounds.width * 0.1)
+        .padding(.vertical, 4)
     }
 }
 
@@ -720,14 +710,12 @@ extension AIChatView {
                         messageRow(
                             message: messageItem.message,
                             attributedContent: messageItem.attributedContent,
-                            timestamp: messageItem.timestamp,
-                            proxy: proxy // Pass proxy if needed by messageRow
+                            timestamp: messageItem.timestamp
                         )
                     }
                 }
                 .padding(.horizontal, 10) // Consistent horizontal padding
                 .padding(.top, 10)
-                // .padding(.bottom, inputHeight + 16) // Padding at bottom handled by overall layout
             }
             .onChange(of: messages.count) { _ in // Use messages.count to re-trigger on new message
                 if let lastMessage = messages.last {
@@ -740,47 +728,29 @@ extension AIChatView {
             }
         }
         .background(Color.clear) // Ensure ScrollView background is clear
-        // .frame(maxHeight: .infinity) // Let VStack manage height distribution
     }
     
     private func messageRow(
         message: ChatMessage,
         attributedContent: AttributedString,
-        timestamp: MessageTimestamp,
-        proxy: ScrollViewProxy // proxy might not be needed here if not used
+        timestamp: MessageTimestamp
     ) -> some View {
         ChatBubble(
             message: message,
             attributedContent: attributedContent,
             timestamp: timestamp,
             isStreaming: streamingMessageId == message.id && message.sender == .gemini,
-            onLongPress: {
-                selectedMessageForMenu = message
-                // showingMessageMenu = true // Trigger contextMenu directly or a custom menu
-            },
             onCopy: { contentToCopy in
                 copyMessageContent(content: contentToCopy)
             },
-            onShare: { contentToShare in
-                shareContent(contentToShare)
-            }
+            articleTitle: selectedArticle?.title, // Pass article title
+            articleLink: selectedArticle?.link // Pass article link
         )
         .id(message.id) // Ensure each row has a unique ID for ScrollViewReader
-        // .frame(maxWidth: .infinity, alignment: message.sender == .user ? .trailing : .leading) // Handled in ChatBubble
-        .contextMenu { // Using standard context menu
-            Button { copyMessageContent(content: message.content) } label: { Label("复制", systemImage: "doc.on.doc") }
-            if message.sender == .gemini { // Share only for Gemini messages
-                Button { shareContent(message.content) } label: { Label("分享", systemImage: "square.and.arrow.up") }
-            }
-        }
-    }
-    
-    private func shareContent(_ content: String) {
-        let activityVC = UIActivityViewController(activityItems: [content], applicationActivities: nil)
-        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-           let window = windowScene.windows.first(where: { $0.isKeyWindow }), // Get key window
-           let rootVC = window.rootViewController {
-            rootVC.present(activityVC, animated: true)
+        .frame(maxWidth: UIScreen.main.bounds.width * 0.75)  // Handled in ChatBubble
+        .onChange(of: message) { newMessage in
+            // 在消息内容变化时打印信息
+            print("ChatBubble onChange - Message ID: \(newMessage.id), Sender: \(newMessage.sender), Content (Plain Text): \(newMessage.content)")
         }
     }
     
@@ -831,9 +801,7 @@ extension AIChatView {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            // .background(Color(.systemGray6)) // Background for the entire input bar
         }
-        // .background(Material.thin) // Apply material to the whole input bar container for a modern look
     }
     
     // Helper to calculate TextEditor height

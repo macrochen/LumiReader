@@ -74,3 +74,4 @@ struct ArticleRow_Previews: PreviewProvider {
         .padding()
     }
 } 
+ 

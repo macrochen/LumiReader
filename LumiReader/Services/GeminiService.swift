@@ -269,6 +269,144 @@ struct GeminiService {
              }
          }
     }
+
+    // Add the non-streaming chat function
+    static func chatWithGeminiNonStreaming(
+        articleContent: String,
+        history: [ChatMessage],
+        newMessage: String,
+        apiKey: String
+    ) async throws -> String {
+        
+        guard !apiKey.isEmpty else {
+            throw GeminiServiceError.invalidAPIKey
+        }
+        
+        // Use the non-streaming API endpoint
+        let url = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=\(apiKey)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 60 // Set a reasonable timeout
+
+        // Construct contents array using Encodable structs, similar to chatWithGemini
+        var contents: [Content] = []
+        
+        // Add chat history
+        for message in history {
+            let role = message.sender == .user ? "user" : "model"
+            contents.append(
+                Content(
+                    role: role,
+                    parts: [
+                        Part(text: message.content)
+                    ]
+                )
+            )
+        }
+        
+        // Add the new user message including article context and prompts
+        // Keep the same prompt structure as the streaming version
+        var userMessageText = "基于以下文章内容回复我的问题，请用中文。文章内容：\n\n\(articleContent)\n\n我的问题：\n\(newMessage)"
+        
+        contents.append(
+            Content(
+                role: "user",
+                parts: [
+                    Part(text: userMessageText)
+                ]
+            )
+        )
+        
+        // Construct the request body struct
+        let requestBody = ChatCompletionRequestBody(
+            contents: contents,
+            generationConfig: GenerationConfig(
+                temperature: 0.3,
+                topK: 30,
+                topP: 0.7
+            ),
+             safetySettings: [
+                 SafetySetting(
+                     category: "HARM_CATEGORY_HARASSMENT",
+                     threshold: "BLOCK_NONE"
+                 ),
+                 SafetySetting(
+                     category: "HARM_CATEGORY_HATE_SPEECH",
+                     threshold: "BLOCK_NONE"
+                 ),
+                 SafetySetting(
+                     category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                     threshold: "BLOCK_NONE"
+                 ),
+                 SafetySetting(
+                     category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+                     threshold: "BLOCK_NONE"
+                 )
+             ]
+        )
+        
+        // Encode the request body struct
+        guard let httpBody = try? JSONEncoder().encode(requestBody) else {
+             throw NSError(domain: "GeminiService", code: 0, userInfo: [NSLocalizedDescriptionKey: "Failed to encode request body"])
+        }
+        
+        // Print the encoded JSON body for debugging
+        // if let jsonString = String(data: httpBody, encoding: .utf8) {
+        //     // print("Sending Non-Streaming Request Body:\n\(jsonString)")
+        // } else {
+        //     print("Failed to convert HTTP body to string for logging.")
+        // }
+        
+        request.httpBody = httpBody // Assign the encoded body to the request
+        
+        // Perform the non-streaming request
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw GeminiServiceError.invalidResponseType
+        }
+        
+        guard httpResponse.statusCode == 200 else {
+             // Attempt to read error body if available
+             if let errorBodyString = String(data: data, encoding: .utf8) {
+                 // Try decoding as GeminiAPIErrorResponse first
+                 if let decodedError = try? JSONDecoder().decode(GeminiAPIErrorResponse.self, from: data) {
+                      print("API Error (Non-Streaming): Status Code \(httpResponse.statusCode), Message: \(decodedError.error.message)")
+                      throw GeminiServiceError.apiError(message: decodedError.error.message)
+                 } else {
+                     // Fallback to raw string if JSON decoding fails
+                     print("HTTP Error (Non-Streaming): Status Code \(httpResponse.statusCode), Body: \(errorBodyString)")
+                     throw GeminiServiceError.apiError(message: "HTTP Status Code: \(httpResponse.statusCode), Body: \(errorBodyString)")
+                 }
+             } else {
+                 // Fallback to just status code if no body or decoding fails
+                 print("HTTP Error (Non-Streaming): Status Code \(httpResponse.statusCode), Failed to decode error body.")
+                 throw GeminiServiceError.httpError(statusCode: httpResponse.statusCode)
+             }
+        }
+        
+        // Parse the non-streaming JSON response, similar to summarizeArticles
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let candidates = json["candidates"] as? [[String: Any]],
+              let firstCandidate = candidates.first,
+              let content = firstCandidate["content"] as? [String: Any],
+              let parts = content["parts"] as? [[String: Any]],
+              let firstPart = parts.first,
+              let text = firstPart["text"] as? String else {
+            
+            // Log the raw response data if parsing fails
+            if let rawResponseString = String(data: data, encoding: .utf8) {
+                 print("Failed to parse Gemini non-streaming response. Raw data:\n\(rawResponseString)")
+            } else {
+                 print("Failed to parse Gemini non-streaming response. Raw data not convertible to string.")
+            }
+            
+            throw GeminiServiceError.emptyResponse // Or a more specific parsing error
+        }
+        
+        return text
+    }
 }
 
 // Helper structs for encoding/decoding API requests/responses
@@ -365,3 +503,4 @@ struct APIError: Decodable {
     let message: String
     let status: String
 } 
+ 

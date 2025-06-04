@@ -163,3 +163,4 @@ struct SummaryView_Previews: PreviewProvider {
         return SummaryView(selectedTab: .constant(.summary), selectedArticleForChat: .constant(nil))
     }
 }
+ 
