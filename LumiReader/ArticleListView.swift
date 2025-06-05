@@ -111,7 +111,7 @@ struct ArticleListView: View {
     // Computed property for the article list content
     private var articleListContent: some View {
         ScrollView {
-            VStack(spacing: 16) {
+            VStack(spacing: 2) {
                 if articles.isEmpty {
                     Text("暂无文章，请点击右上角按钮导入")
                         .foregroundColor(.gray)

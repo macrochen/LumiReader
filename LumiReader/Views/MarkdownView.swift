@@ -15,6 +15,7 @@ let JS_BUTTON_CLICK_FUNCTION = "onDialogueButtonClick"
 struct MarkdownWebView: UIViewRepresentable {
     let markdownText: String
     let articlesToLink: [Article] // 直接使用 CoreData 的 Article 模型
+    let fontSize: CGFloat
     
     @Binding var dynamicHeight: CGFloat
     var onDialogueButtonTapped: ((String) -> Void)?
@@ -39,7 +40,7 @@ struct MarkdownWebView: UIViewRepresentable {
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
-        let processedHtml = htmlForMarkdown(markdownText, articles: articlesToLink, context: context)
+        let processedHtml = htmlForMarkdown(markdownText, articles: articlesToLink, context: context, fontSize: fontSize)
         
         if context.coordinator.lastLoadedHTML != processedHtml {
             webView.loadHTMLString(processedHtml, baseURL: nil)
@@ -52,7 +53,7 @@ struct MarkdownWebView: UIViewRepresentable {
     }
 
     // MARK: - HTML 处理和注入
-    private func htmlForMarkdown(_ markdown: String, articles: [Article], context: Context) -> String {
+    private func htmlForMarkdown(_ markdown: String, articles: [Article], context: Context, fontSize: CGFloat) -> String {
         var currentHtml: String
         do {
             currentHtml = try Down(markdownString: markdown).toHTML([.hardBreaks, .unsafe])
@@ -148,7 +149,7 @@ struct MarkdownWebView: UIViewRepresentable {
         }
         
         let finalHtml = """
-        <!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no"><style>body{font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue","system-ui",sans-serif;font-size:\(UIFont.preferredFont(forTextStyle: .body).pointSize)px;color:\(UIColor.label.toHexString());margin:0;padding:0;word-wrap:break-word;-webkit-text-size-adjust:none}h1,h2,h3,h4,h5,h6{margin-top:1em;margin-bottom:0.5em;}p{margin-top:0;margin-bottom:0.8em;line-height:1.6}p > a + button.dialogue-button{margin-left:8px;}p > span.linked-title-container > a{color:inherit;text-decoration:none;}p > span.linked-title-container > a:hover{text-decoration:underline;}span.linked-title-container{/* display:inline-flex; align-items:center; */}ul,ol{padding-left:25px;margin-bottom:0.8em}li{margin-bottom:0.3em}code{font-family:"Menlo","Courier New",monospace;background-color:rgba(128,128,128,0.15);padding:2px 5px;border-radius:4px;font-size:0.9em}pre{background-color:rgba(128,128,128,0.1);padding:12px;border-radius:6px;overflow-x:auto;margin-bottom:0.8em}pre code{padding:0;background-color:transparent;font-size:0.85em}a{color:\(UIColor.systemBlue.toHexString());text-decoration:none}a:hover{text-decoration:underline}.dialogue-button{background-color:\(UIColor.systemBlue.toHexString());color:white;border:none;padding:5px 10px;border-radius:5px;font-size:0.8em;cursor:pointer;margin-left:8px;white-space:nowrap;vertical-align:middle;}.dialogue-button:hover{background-color:\(UIColor.systemBlue.withAlphaComponent(0.8).toHexString())}img{max-width:100%;height:auto;border-radius:6px}</style></head><body>\(currentHtml)<script type="text/javascript">
+        <!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no"><style>body{font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue","system-ui",sans-serif;font-size:\(fontSize)px;color:\(UIColor.label.toHexString());margin:0;padding:0;word-wrap:break-word;-webkit-text-size-adjust:none}h1,h2,h3,h4,h5,h6{margin-top:1em;margin-bottom:0.5em;}p{margin-top:0;margin-bottom:0.8em;line-height:1.6}p > a + button.dialogue-button{margin-left:8px;}p > span.linked-title-container > a{color:inherit;text-decoration:none;}p > span.linked-title-container > a:hover{text-decoration:underline;}span.linked-title-container{/* display:inline-flex; align-items:center; */}ul,ol{padding-left:25px;margin-bottom:0.8em}li{margin-bottom:0.3em}code{font-family:"Menlo","Courier New",monospace;background-color:rgba(128,128,128,0.15);padding:2px 5px;border-radius:4px;font-size:0.9em}pre{background-color:rgba(128,128,128,0.1);padding:12px;border-radius:6px;overflow-x:auto;margin-bottom:0.8em}pre code{padding:0;background-color:transparent;font-size:0.85em}a{color:\(UIColor.systemBlue.toHexString());text-decoration:none}a:hover{text-decoration:underline}.dialogue-button{background-color:\(UIColor.systemBlue.toHexString());color:white;border:none;padding:5px 10px;border-radius:5px;font-size:0.8em;cursor:pointer;margin-left:8px;white-space:nowrap;vertical-align:middle;}.dialogue-button:hover{background-color:\(UIColor.systemBlue.withAlphaComponent(0.8).toHexString())}img{max-width:100%;height:auto;border-radius:6px}</style></head><body>\(currentHtml)<script type="text/javascript">
         function \(JS_GET_CONTENT_HEIGHT_FUNCTION)(){
             var height=Math.max(document.body.scrollHeight,document.documentElement.scrollHeight,document.body.offsetHeight,document.documentElement.offsetHeight,document.body.clientHeight,document.documentElement.clientHeight);
             if(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.\(JAVASCRIPT_MESSAGE_HANDLER_NAME)){

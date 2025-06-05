@@ -19,6 +19,9 @@ struct SummaryView: View {
     @Binding var selectedTab: TabType // Add binding for selected tab
     @Binding var selectedArticleForChat: Article? // Add binding for selected article for chat
 
+    // 【新增】用于读取文字大小设置
+    @AppStorage("chatSummaryFontSize") private var chatSummaryFontSize: Double = 15.0
+
     /// 预处理 Markdown 文本，移除包裹的 ```markdown ... ``` 代码块。
     private func preprocessMarkdownSummary(_ rawSummary: String) -> String {
         // 正则表达式模式：匹配 ```markdown\n(内容)\n```
@@ -80,6 +83,7 @@ struct SummaryView: View {
                                     MarkdownWebView(
                                         markdownText: processedMarkdownContent,
                                         articlesToLink: Array(allArticles), // Pass all fetched articles
+                                        fontSize: CGFloat(chatSummaryFontSize),
                                         dynamicHeight: $markdownViewHeight,
                                         onDialogueButtonTapped: { contextInfo in // <--- 添加了这个回调
                                             // contextInfo 应该是 Article 的唯一标识符，

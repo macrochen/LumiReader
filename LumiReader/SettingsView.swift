@@ -16,8 +16,10 @@ struct SettingsView: View {
     @AppStorage("presetPromptsData") private var presetPromptsData: Data = Data()
     @State private var presetPrompts: [Prompt] = []
     @State private var editingPromptIndex: Int? = nil
-    @State private var newPromptTitle: String = ""
-    @State private var newPromptContent: String = ""
+    @State private var showingNewPromptInput = false
+    @State private var tempNewPromptTitle: String = ""
+    @State private var tempNewPromptContent: String = ""
+    @AppStorage("chatSummaryFontSize") private var chatSummaryFontSize: Double = 15.0 // 默认文字大小
     
     // MARK: - Computed Properties for Sections
 
@@ -134,6 +136,31 @@ struct SettingsView: View {
         }
     }
 
+    private var displaySettingsSection: some View {
+        SettingGroupBox(title: "显示设置") {
+            VStack(spacing: 0) {
+                SettingItem {
+                    HStack {
+                        Text("文字大小")
+                            .font(.system(size: 15))
+                            .foregroundColor(.primary)
+                        Slider(value: $chatSummaryFontSize, in: 12...30, step: 1) {
+                            Text("文字大小调整") // Accessibility label
+                        } minimumValueLabel: {
+                            Text("小")
+                        } maximumValueLabel: {
+                            Text("大")
+                        }
+                        .frame(maxWidth: 500) // 控制滑块的最大宽度
+                        Text("\(Int(chatSummaryFontSize))") // 显示当前文字大小数值
+                            .font(.system(size: 15))
+                            .frame(width: 30, alignment: .trailing) // 固定宽度对齐数值
+                    }
+                }
+            }
+        }
+    }
+
     private func presetPromptRowView(index: Int) -> some View {
         SettingItem {
             if editingPromptIndex == index {
@@ -146,7 +173,7 @@ struct SettingsView: View {
 
     private var addPresetPromptButton: some View {
         SettingItem {
-            Button(action: { addPrompt() }) {
+            Button(action: { showingNewPromptInput = true }) {
                 HStack(spacing: 6) {
                     Image(systemName: "plus.circle")
                         .font(.system(size: 16))
@@ -190,23 +217,76 @@ struct SettingsView: View {
         .padding(.top, 8)
     }
 
+    private var newPromptInputView: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SettingItem {
+                TextField("提示词标题", text: $tempNewPromptTitle)
+                    .textFieldStyle(PlainTextFieldStyle())
+                    .padding(6)
+                    .background(Color.white.opacity(0.7))
+                    .cornerRadius(6)
+                    .font(.system(size: 15))
+            }
+            
+            SettingItem {
+                TextEditor(text: $tempNewPromptContent)
+                    .frame(height: 80)
+                    .padding(6)
+                    .background(Color.white.opacity(0.7))
+                    .cornerRadius(6)
+                    .font(.system(size: 15))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.gray.opacity(0.5), lineWidth: 1))
+            }
+            
+            HStack(spacing: 12) {
+                Spacer()
+                Button(action: cancelAddNewPrompt) {
+                    Text("取消")
+                        .font(.system(size: 13))
+                        .foregroundColor(.gray)
+                        .padding(.vertical, 6)
+                        .padding(.horizontal, 16)
+                        .background(Color(.systemGray5))
+                        .cornerRadius(8)
+                }
+                Button(action: saveNewPrompt) {
+                    Text("添加")
+                        .font(.system(size: 13))
+                        .foregroundColor(.white)
+                        .padding(.vertical, 6)
+                        .padding(.horizontal, 16)
+                        .background(Color.blue)
+                        .cornerRadius(8)
+                }
+                .disabled(tempNewPromptTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || tempNewPromptContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Spacer()
+            }
+            .padding(.top, 4)
+        }
+        .padding(.top, 10)
+    }
+
     private var presetPromptsSection: some View {
         SettingGroupBox(title: "AI对话预设提示词") {
             VStack(spacing: 0) {
                 ForEach(presetPrompts.indices, id: \.self) { idx in
                     presetPromptRowView(index: idx)
                 }
-                addPresetPromptButton
-                
-                // Container for Save and Restore Default buttons
-                HStack {
-                    Spacer()
-                    restorePresetPromptsButton
-                    Spacer()
-                    savePresetPromptsButton
+                if showingNewPromptInput {
+                    newPromptInputView
+                } else {
+                    addPresetPromptButton
                 }
-                .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.top, 8)
+                // 【新增】底部按钮容器，用于恢复默认和保存
+                HStack(spacing: 20) {
+                    Spacer() // 左对齐
+                    restorePresetPromptsButton
+                    savePresetPromptsButton // 直接调用保存按钮视图
+                    Spacer() // 右对齐
+                }
+                .frame(maxWidth: .infinity, alignment: .center) // 确保 Hstack 占据全宽并内容居中
+                .padding(.top, 15) // 与上面内容的间距
+                .padding(.bottom, 5) // 底部间距
             }
         }
         .navigationTitle("设置")
@@ -223,8 +303,8 @@ struct SettingsView: View {
                 // 设置内容区
                 ScrollView {
                     VStack(spacing: 20) {
+                        displaySettingsSection
                         aiServiceConfigSection
-
                         presetPromptsSection
                     }
                     .padding(.horizontal, 16)
@@ -260,12 +340,25 @@ struct SettingsView: View {
     }
     
     private func addPrompt() {
-        presetPrompts.append(Prompt(title: "", content: ""))
-        editingPromptIndex = presetPrompts.count - 1
+        showingNewPromptInput = true
+        tempNewPromptTitle = ""
+        tempNewPromptContent = ""
     }
     
     private func deletePrompt(at index: Int) {
         presetPrompts.remove(at: index)
+    }
+    
+    private func cancelAddNewPrompt() {
+        showingNewPromptInput = false
+    }
+    
+    private func saveNewPrompt() {
+        let newPrompt = Prompt(title: tempNewPromptTitle, content: tempNewPromptContent)
+        presetPrompts.append(newPrompt)
+        showingNewPromptInput = false
+        tempNewPromptTitle = ""
+        tempNewPromptContent = ""
     }
 }
 

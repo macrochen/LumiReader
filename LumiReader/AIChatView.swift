@@ -204,8 +204,14 @@ struct AIChatView: View {
     @State private var appearCount = 0
 
     // 【新增】流式输出相关的状态变量
-    @State private var streamingMessageId: UUID? // 正在流式输出的消息ID
+    @State private var streamingMessageId: UUID? = nil // 正在流式输出的消息ID
     @State private var streamingContent: String = "" // 当前流式输出的内容
+    
+    // 【修改】用于在 Sheet 中传递 Identifiable 的内容
+    @State private var selectedMessageContentToSelect: SelectableContent? = nil
+    
+    // 【新增】用于读取文字大小设置 (已移动到结构体内部)
+    @AppStorage("chatSummaryFontSize") private var chatSummaryFontSize: Double = 15.0
     
     // Initialize and sync selectedArticle with the binding `article`
     init(article: Binding<Article?>) {
@@ -315,7 +321,11 @@ struct AIChatView: View {
 
             inputBarView
         }
-        // .padding(.bottom, 50) // This might interfere with TabView safe area. Remove if it does.
+        // 【修改】模态视图用于文本选择，绑定到 selectedMessageContentToSelect
+        .sheet(item: $selectedMessageContentToSelect) { contentToSelectWrapper in
+            // Sheet 的内容闭包接收到 Identifiable 的包装类型
+            SelectTextView(attributedContent: contentToSelectWrapper.attributedContent)
+        }
     }
     
     var body: some View {
@@ -347,12 +357,6 @@ struct AIChatView: View {
                 inputText = ""
                 chatError = nil
             }
-        }
-        .onChange(of: selectedArticle) { newSelectedArticle in
-            print("AIChatView selectedArticle changed to: \(newSelectedArticle?.title ?? "nil")")
-            messages = [] // Clear messages when selected article changes
-            inputText = ""
-            chatError = nil
         }
         .alert(item: $chatError) { error in
             Alert(
@@ -516,6 +520,24 @@ struct AIChatView: View {
         await MainActor.run { streamingMessageId = nil; isSending = false }
     }
 
+    // 【新增】复制文章信息和AI回复内容
+    private func copyArticleAndResponse(attributedContent: AttributedString, articleTitle: String?, articleLink: String?) {
+        var combinedContent = ""
+        combinedContent += "文章标题: \(articleTitle ?? "无标题")\n"
+        if let link = articleLink, !link.isEmpty {
+            combinedContent += "文章链接: \(link)\n"
+        }
+        combinedContent += "\nAI回复内容:\n"
+        // 将 AttributedString 转换为纯文本
+        combinedContent += NSAttributedString(attributedContent).string
+
+        #if canImport(UIKit)
+        UIPasteboard.general.string = combinedContent
+        #endif
+        print("Copied combined content:")
+        print(combinedContent)
+    }
+
     // 【新增】处理流式响应
     private func handleStreamingResponse(stream: AsyncThrowingStream<String, Error>, messageId: UUID) async throws {
         var accumulatedContent = ""
@@ -571,10 +593,16 @@ struct ChatBubble: View {
     // 【新增】指示当前消息是否正在流式输出
     let isStreaming: Bool
     
-    // Callbacks for actions within the bubble
-    let onCopy: (String) -> Void
+    // 【新增】接收字体大小设置
+    let fontSize: CGFloat
     
-    // Article info to include in combined copy
+    // 【新增】接收外部状态和回调
+    @Binding var showingSelectTextView: Bool
+    @Binding var selectedMessageContentToSelect: SelectableContent?
+    let onCopyMessage: (String) -> Void // 用于复制纯文本消息内容
+    let onCopyArticleAndMessage: (AttributedString, String?, String?) -> Void // 用于复制文章信息+消息内容
+    
+    // Article info (passed for the second copy option)
     let articleTitle: String?
     let articleLink: String?
     
@@ -583,7 +611,8 @@ struct ChatBubble: View {
     // 你可能需要根据你的 App 主题或者具体需求来定义这些字体和颜色
     private var bubbleFont: UIFont {
         // 例如，可以根据消息发送者或其他条件返回不同的字体
-        return UIFont.systemFont(ofSize: 16) // 假设默认字体大小为16
+        // 【修改】使用设置中的文字大小
+        return UIFont.systemFont(ofSize: fontSize)
     }
 
     private var bubbleTextColor: UIColor {
@@ -592,29 +621,24 @@ struct ChatBubble: View {
     
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            if message.sender == .gemini {
-                Image("gemini_icon")
-                    .resizable()
-                    .frame(width: 28, height: 28)
-                    .clipShape(Circle())
-            }
-            
             VStack(alignment: message.sender == .user ? .trailing : .leading, spacing: 4) {
                 // 【修改】使用 Text 组件替代 SelectableUIKitTextView
                 Text(attributedContent)
                     // 【新增】启用文本选择
                     .textSelection(.enabled)
+                    // 【新增】应用文字大小设置
+                    .font(.system(size: fontSize))
                     // 应用原 SelectableUIKitTextView 的修饰符
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .background(message.sender == .user ? Color.blue : Color(.systemGray5))
                     .cornerRadius(16)
                     // 应用外部宽度约束和对齐
-                    .frame(maxWidth: UIScreen.main.bounds.width * 0.75, alignment: message.sender == .user ? .trailing : .leading)
+                    .frame(maxWidth: UIScreen.main.bounds.width * 0.9, alignment: message.sender == .user ? .trailing : .leading)
                     // Text 默认支持高度自适应和换行，fixedSize vertical true 可以加强这一点
                     .fixedSize(horizontal: false, vertical: true)
                 
-                // Timestamp and Actions (only for Gemini messages for now) - Moved outside the Text modifiers
+                // Timestamp and Actions
                 HStack(spacing: 12) {
                     Text(timestamp.formattedTime)
                         .font(.caption2)
@@ -624,19 +648,15 @@ struct ChatBubble: View {
                         // 【修改】仅当消息不是流式输出中时才显示复制按钮
                         if !isStreaming {
                             // Copy message content
-                            Button { onCopy(message.content) } label: {
+                            Button {
+                                onCopyMessage(message.content) // 复制纯文本内容
+                            } label: {
                                 Image(systemName: "doc.on.doc")
                             }
 
                             // Copy article info + message content
                             Button {
-                                var combinedContent = ""
-                                combinedContent += " \(articleTitle ?? "无标题")"
-                                if let link = articleLink, !link.isEmpty {
-                                    combinedContent += "(\(link))\n"
-                                }
-                                combinedContent += message.content // 使用 message.content 获取纯文本
-                                onCopy(combinedContent)
+                                onCopyArticleAndMessage(attributedContent, articleTitle, articleLink) // 复制文章信息+消息内容
                             } label: {
                                 Image(systemName: "doc.on.clipboard.fill")
                             }
@@ -649,16 +669,32 @@ struct ChatBubble: View {
                 .frame(maxWidth: .infinity, alignment: message.sender == .user ? .trailing : .leading)
                 .layoutPriority(0)
             }
-            
-            if message.sender == .user {
-                Image("user_icon")
-                    .resizable()
-                    .frame(width: 28, height: 28)
-                    .clipShape(Circle())
-            }
         }
-        .padding(message.sender == .user ? .leading : .trailing, UIScreen.main.bounds.width * 0.1)
+        // 【修改】调整气泡左右的 padding 来控制宽度
+        .padding(message.sender == .user ? .leading : .trailing, UIScreen.main.bounds.width * 0.05)
         .padding(.vertical, 4)
+        // 【恢复】长按 Context Menu
+        .contextMenu {
+            // 标准复制选项
+            Button {
+                onCopyMessage(message.content)
+            } label: {
+                Label("复制", systemImage: "doc.on.doc")
+            }
+
+            // 【恢复】选中文字选项
+            Button {
+                // 将 AttributedString 包装在 Identifiable 结构体中
+                selectedMessageContentToSelect = SelectableContent(attributedContent: attributedContent)
+            } label: {
+                Label("选中文字", systemImage: "text.cursor")
+            }
+
+            // 分享选项 (如果需要)
+            // if message.sender == .gemini { // Share only for Gemini messages
+            //     Button { shareContent(message.content) } label: { Label("分享", systemImage: "square.and.arrow.up") }
+            // }
+        }
     }
 }
 
@@ -740,11 +776,18 @@ extension AIChatView {
             attributedContent: attributedContent,
             timestamp: timestamp,
             isStreaming: streamingMessageId == message.id && message.sender == .gemini,
-            onCopy: { contentToCopy in
+            fontSize: CGFloat(chatSummaryFontSize),
+            showingSelectTextView: $showingMessageMenu,
+            selectedMessageContentToSelect: $selectedMessageContentToSelect,
+            onCopyMessage: {
+                contentToCopy in
                 copyMessageContent(content: contentToCopy)
             },
-            articleTitle: selectedArticle?.title, // Pass article title
-            articleLink: selectedArticle?.link // Pass article link
+            onCopyArticleAndMessage: { content, title, link in
+                copyArticleAndResponse(attributedContent: content, articleTitle: title, articleLink: link)
+            },
+            articleTitle: selectedArticle?.title,
+            articleLink: selectedArticle?.link
         )
         .id(message.id) // Ensure each row has a unique ID for ScrollViewReader
         .frame(maxWidth: UIScreen.main.bounds.width * 0.75)  // Handled in ChatBubble
@@ -814,4 +857,81 @@ extension AIChatView {
         let size = textView.sizeThatFits(CGSize(width: fixedWidth, height: .greatestFiniteMagnitude))
         return min(max(35, size.height), 120) // Clamp between min and max height
     }
+}
+
+// 【新增】用于在模态视图中显示可选择文本的 UIViewRepresentable
+struct SelectableTextViewRepresentable: UIViewRepresentable {
+    let attributedText: NSAttributedString
+    @Binding var textView: UITextView
+    
+    func makeUIView(context: Context) -> UITextView {
+        let textView = UITextView()
+        textView.isEditable = false // 不可编辑，只用于显示和选择
+        textView.isSelectable = true // 启用文本选择
+        textView.isScrollEnabled = true // 允许在模态视图中滚动
+        textView.backgroundColor = .clear
+        textView.textContainerInset = .zero
+        textView.textContainer.lineFragmentPadding = 0
+        // 可以根据需要配置字体、颜色等，或者从 AttributedString 中继承
+        
+        return textView
+    }
+    
+    func updateUIView(_ uiView: UITextView, context: Context) {
+        uiView.attributedText = attributedText
+        // 【新增】打印 NSAttributedString 内容进行调试
+        print("SelectableTextViewRepresentable updateUIView - Received NSAttributedString (length: \(attributedText.length))")
+        print("Content Preview: \(attributedText.string.prefix(200))...")
+        // 确保文本视图内容可以滚动和选择
+        uiView.isSelectable = true
+        uiView.isScrollEnabled = true
+    }
+}
+
+// 【新增】用于模态显示的文本选择视图
+struct SelectTextView: View {
+    @Environment(\.dismiss) var dismiss
+    let contentToSelect: AttributedString
+    
+    // 【新增】用于获取 UITextView 实例以便访问选中内容
+    @State private var textView = UITextView() 
+    
+    // 将 AttributedString 转换为 NSAttributedString 以便传递给 UITextView
+    private var nsAttributedString: NSAttributedString {
+        // 确保在这里正确转换 AttributedString 到 NSAttributedString
+        return NSAttributedString(contentToSelect as Foundation.AttributedString)
+    }
+    
+    // 【修改】显式添加一个带有参数标签的初始化方法
+    init(attributedContent: AttributedString) {
+        self.contentToSelect = attributedContent
+        // 【新增】打印 AttributedString 内容进行调试
+        print("SelectTextView initialized with AttributedString (length: \(contentToSelect.characters.count))")
+        print("Content Preview: \(String(contentToSelect.characters.prefix(200)))... ")
+    }
+    
+    var body: some View {
+        NavigationView { // 使用 NavigationView 提供标题和关闭按钮
+            VStack {
+                // 使用我们创建的 UIViewRepresentable，并将 UITextView 实例绑定到 @State 变量
+                SelectableTextViewRepresentable(attributedText: nsAttributedString, textView: $textView)
+                    .padding() // 添加一些内边距
+            }
+            .navigationTitle("选中文字")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("完成") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+}
+
+// 【新增】用于包装 AttributedString 并使其遵循 Identifiable
+struct SelectableContent: Identifiable {
+    let id = UUID()
+    let attributedContent: AttributedString
 } 
