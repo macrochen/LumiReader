@@ -173,6 +173,8 @@ struct AIChatView: View {
     @Environment(\.dismiss) var dismiss
     
     @Binding var article: Article? // Changed from pendingArticleID for directness as per latest context
+    @Binding var selectedTab: TabType
+    let previousTabType: TabType?
     
     @FetchRequest(
         sortDescriptors: [NSSortDescriptor(keyPath: \Article.importDate, ascending: false)],
@@ -191,7 +193,12 @@ struct AIChatView: View {
     
     @State private var clipboardContent: String = ""
     
-    @State private var chatError: ChatError?
+    @State private var chatError: ChatError? = nil
+
+    // 【新增】用于重试消息的状态变量
+    @State private var retryMessageContent: String? = nil
+    @State private var showingRetryIcon: Bool = false
+    
     @State private var lastFailedMessage: String?
     
     @State private var isInputFocused: Bool = false
@@ -212,15 +219,31 @@ struct AIChatView: View {
     
     // 【新增】用于读取文字大小设置 (已移动到结构体内部)
     @AppStorage("chatSummaryFontSize") private var chatSummaryFontSize: Double = 15.0
-    
+
+    // 【新增】从父视图接收的拖动偏移量绑定
+    @Binding var dragOffset: CGSize
+
+    // 【新增】用于在拖动过程中临时存储实时位移
+    @State private var currentDragTranslation: CGSize = .zero
+
     // Initialize and sync selectedArticle with the binding `article`
-    init(article: Binding<Article?>) {
+    init(article: Binding<Article?>, selectedTab: Binding<TabType>, previousTabType: TabType?, dragOffset: Binding<CGSize>) {
         self._article = article
+        self._selectedTab = selectedTab
+        
+        // 【修改】将拖动偏移量绑定的初始化放在前面
+        self._dragOffset = dragOffset
+
+        // 【新增】显式初始化 currentDragTranslation
+        self._currentDragTranslation = State(initialValue: .zero)
+
+        self.previousTabType = previousTabType
         // Initialize _selectedArticle state with the initial value of the binding
         // This ensures that if an article is passed in, it's used.
         // If `article` is nil, then `selectedArticle` will also be nil, allowing Picker.
-        self._selectedArticle = State(initialValue: article.wrappedValue) 
+        self._selectedArticle = State(initialValue: article.wrappedValue)
         // print("AIChatView init. Bound Article: \(article.wrappedValue?.title ?? "nil"), SelectedArticle: \(self.selectedArticle?.title ?? "nil")")
+        // print("AIChatView init. Previous Tab Type: \(previousTabType != nil ? String(describing: previousTabType!) : "nil")")
     }
     
     // Computed property for preset prompts view
@@ -298,7 +321,7 @@ struct AIChatView: View {
     }
     
     @ViewBuilder
-    private var primaryContentView: some View {
+    private func primaryContentView(fontSize: CGFloat) -> some View {
         VStack(spacing: 0) {
             // Article display/picker
             // Always display the Picker
@@ -311,7 +334,7 @@ struct AIChatView: View {
 
             Divider() // Add a divider
 
-            chatContentListView
+            chatContentListView(fontSize: fontSize)
             .frame(maxHeight: .infinity) // 【新增/修改】让聊天内容列表占据所有剩余空间
 
 
@@ -324,7 +347,8 @@ struct AIChatView: View {
         // 【修改】模态视图用于文本选择，绑定到 selectedMessageContentToSelect
         .sheet(item: $selectedMessageContentToSelect) { contentToSelectWrapper in
             // Sheet 的内容闭包接收到 Identifiable 的包装类型
-            SelectTextView(attributedContent: contentToSelectWrapper.attributedContent)
+            // 【修改】传递 contentToSelectWrapper 中包含的字体大小
+            SelectTextView(attributedContent: contentToSelectWrapper.attributedContent, fontSize: contentToSelectWrapper.fontSize)
         }
     }
     
@@ -333,11 +357,72 @@ struct AIChatView: View {
             LinearGradient(gradient: Gradient(colors: [Color(red: 0.90, green: 0.95, blue: 1.0), Color(red: 0.85, green: 0.91, blue: 1.0)]), startPoint: .topLeading, endPoint: .bottomTrailing)
                 .ignoresSafeArea()
             
-            primaryContentView
+            primaryContentView(fontSize: CGFloat(chatSummaryFontSize))
+        }
+        // 【新增】GeometryReader 用于获取屏幕尺寸
+        .overlay(alignment: .topTrailing) { // 初始定位在右上角
+            GeometryReader { geometry in
+                if let previousTab = previousTabType {
+                    Button(action: {
+                        print("【浮窗】点击返回按钮，当前 previousTabType: \(previousTab)")
+                        // 切换回前一个 Tab
+                        selectedTab = previousTab
+                    }) {
+                        Image(systemName: previousTab == .articleList ? "list.bullet.rectangle.fill" : "text.magnifyingglass")
+                            .font(.system(size: 20))
+                            .padding(10)
+                            .background(Color.blue)
+                            .foregroundColor(.white)
+                            .clipShape(Circle())
+                            .shadow(radius: 8)
+                    }
+                    // 【修改】应用拖动偏移，结合总偏移 (来自 binding) 和当前实时位移 (临时 state)
+                    .offset(x: dragOffset.width + currentDragTranslation.width, y: dragOffset.height + currentDragTranslation.height)
+                    // 【修改】添加拖动手势，更新 currentDragTranslation 和 dragOffset binding
+                    .gesture(
+                        DragGesture()
+                            .onChanged { value in
+                                print("【浮窗】拖动中，当前偏移: \(value.translation)")
+                                // 在拖动过程中，实时更新当前的临时位移
+                                currentDragTranslation = value.translation
+                            }
+                            .onEnded { value in
+                                print("【浮窗】拖动结束，更新总偏移（更新前）: \(dragOffset)")
+                                // 拖动结束时，将当前的最终位移加到总偏移量 binding 中
+                                dragOffset.width += value.translation.width
+                                dragOffset.height += value.translation.height
+                                // 重置当前的临时位移
+                                currentDragTranslation = .zero
+                                print("【浮窗】拖动结束，更新总偏移（更新后）: \(dragOffset)")
+                            }
+                    )
+                    // 【新增】提高浮窗的层级，防止被其他视图覆盖
+                    .zIndex(1)
+                    // 【新增】确保按钮在 GeometryReader 内部靠右对齐
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    // 【新增】在 onAppear 中计算并设置初始垂直位置
+                    .onAppear {
+                        // 只在 dragOffset 是初始值时设置初始位置
+                        if dragOffset == .zero {
+                            // 计算右侧中间的垂直偏移量
+                            // 浮窗按钮大致高度为 40-50点 (20 icon + 2*10 padding)
+                            let buttonHeight: CGFloat = 45
+                            let middleY = geometry.size.height / 2
+                            // 偏移量是从右上角 (y=0) 到 middleY 位置所需的距离
+                            let initialVerticalOffset = middleY - (buttonHeight / 2)
+                            dragOffset = CGSize(width: 0, height: initialVerticalOffset)
+                            print("【浮窗】在 onAppear 中设置初始垂直偏移量: \(initialVerticalOffset)")
+                        }
+                    }
+                } else {
+//                print("【浮窗】previousTabType 为 nil，不显示浮窗")
+                }
+            }
         }
         .onAppear {
             appearCount += 1
             print("AIChatView onAppear (\(appearCount)). Bound Article: \(article?.title ?? "nil"), SelectedArticle: \(selectedArticle?.title ?? "nil")")
+            print("AIChatView onAppear. Previous Tab Type: \(previousTabType != nil ? String(describing: previousTabType!) : "nil")")
             loadPrompts()
             // Sync selectedArticle with the binding `article` if it changes externally or on initial appear
             if selectedArticle?.objectID != article?.objectID { // Compare by objectID for CoreData entities
@@ -353,24 +438,25 @@ struct AIChatView: View {
             print("AIChatView @Binding article changed to: \(newArticleFromBinding?.title ?? "nil")")
             if selectedArticle?.objectID != newArticleFromBinding?.objectID {
                 selectedArticle = newArticleFromBinding
-                messages = [] // Clear messages if article changes
-                inputText = ""
-                chatError = nil
+                if newArticleFromBinding != nil {
+                    messages = [] // Clear messages if article changes
+                    inputText = ""
+                    chatError = nil
+                }
             }
         }
         .alert(item: $chatError) { error in
-            Alert(
-                title: Text(error.errorDescription ?? "错误"),
-                message: Text(error.recoverySuggestion ?? "请稍后重试。"),
-                primaryButton: .default(Text("重试"), action: {
-                    if let lastMessage = lastFailedMessage {
-                        inputText = lastMessage
-                        sendMessage()
-                    }
-                }),
-                secondaryButton: .cancel(Text("关闭"))
-            )
-        }
+             Alert(
+                 title: Text(error.errorDescription ?? "错误"),
+                 message: Text(error.recoverySuggestion ?? "请稍后重试。"),
+                 primaryButton: .default(Text("重试"), action: {
+                     if let contentToRetry = retryMessageContent { // Use retryMessageContent
+                         sendMessage(with: contentToRetry)
+                     }
+                 }),
+                 secondaryButton: .cancel(Text("关闭"))
+             )
+         }
     }
     
     private func loadPrompts() {
@@ -405,46 +491,53 @@ struct AIChatView: View {
         }
         
         isSending = true
+
+        // 【修改】将当前消息保存到重试状态，而不是立即添加到 messages 数组
+        retryMessageContent = trimmedInput
+        showingRetryIcon = false // Hide retry icon on new send attempt
+
         inputText = ""
-        lastFailedMessage = trimmedInput
         selectedPrompts = []
-        
-        let userMessage = ChatMessage(id: UUID(), sender: .user, content: trimmedInput)
-        let attributedUserContent = convertToMarkdownAttributedString(trimmedInput)
-        let timestamp = MessageTimestamp()
-        messages.append(ChatMessageItem(message: userMessage, attributedContent: attributedUserContent, timestamp: timestamp))
-        
+
         // 【新增】为流式 AI 回复添加一个占位符消息
+        // 我们仍然需要一个AI消息ID来处理流式更新，即使用户消息未添加到messages
         let aiMessageId = UUID()
         streamingMessageId = aiMessageId
         streamingContent = ""
         // 使用一个临时的 AttributedString，例如显示一个光标
+        // 这里的占位符消息暂时添加到 messages，如果失败会移除
         let placeholderAttributedContent = convertToMarkdownAttributedString("▌")
         let placeholderAIMessage = ChatMessage(id: aiMessageId, sender: .gemini, content: "")
-        messages.append(ChatMessageItem(message: placeholderAIMessage, attributedContent: placeholderAttributedContent, timestamp: MessageTimestamp()))
+        // messages.append(ChatMessageItem(message: placeholderAIMessage, attributedContent: placeholderAttributedContent, timestamp: MessageTimestamp())) // 暂时不添加到 messages 数组，处理流式时再添加
 
         // 【修改】使用流式 API
-        let apiHistory = messages.dropLast().map { $0.message } // 排除掉最新的占位符消息
+        // API History 现在是 messages 数组的全部内容，因为最新的用户消息还没有加进去
+        let apiHistory = messages.map { $0.message }
 
         Task {
             do {
                 let stream = try await GeminiService.chatWithGemini(
                     articleContent: articleToChat.content ?? "",
-                    history: apiHistory,
-                    newMessage: trimmedInput,
+                    history: apiHistory, // Use current messages as history
+                    newMessage: trimmedInput, // Pass the new message separately
                     apiKey: apiKey
                 )
-                
+
                 // 【修改】处理流式响应
-                try await handleStreamingResponse(stream: stream, messageId: aiMessageId)
-                await cleanupAfterSend()
+                // handleStreamingResponse 需要修改来处理占位符和最终消息添加逻辑
+                try await handleStreamingResponse(stream: stream, messageId: aiMessageId, userMessageContent: trimmedInput)
+
+                await cleanupAfterSend() // This should clear isSending
+
             } catch {
                 await MainActor.run {
-                    // 【新增】如果在流式过程中发生错误，移除占位符消息
-                    if let index = messages.firstIndex(where: { $0.id == aiMessageId }) {
-                         messages.remove(at: index)
-                    }
-                    handleError(error)
+                    // 【修改】如果在流式过程中发生错误，移除占位符消息并显示重试图标
+                    // if let index = messages.firstIndex(where: { $0.id == aiMessageId }) {
+                    //      messages.remove(at: index)
+                    // }
+                    handleError(error) // handleError should set chatError and isSending=false
+                    showingRetryIcon = true // Show retry icon on failure
+                    // retryMessageContent 已经在发送前设置，不需要重新设置
                 }
             }
         }
@@ -523,11 +616,10 @@ struct AIChatView: View {
     // 【新增】复制文章信息和AI回复内容
     private func copyArticleAndResponse(attributedContent: AttributedString, articleTitle: String?, articleLink: String?) {
         var combinedContent = ""
-        combinedContent += "文章标题: \(articleTitle ?? "无标题")\n"
+        combinedContent += "\(articleTitle ?? "无标题")"
         if let link = articleLink, !link.isEmpty {
-            combinedContent += "文章链接: \(link)\n"
+            combinedContent += "\(link)\n"
         }
-        combinedContent += "\nAI回复内容:\n"
         // 将 AttributedString 转换为纯文本
         combinedContent += NSAttributedString(attributedContent).string
 
@@ -538,34 +630,150 @@ struct AIChatView: View {
         print(combinedContent)
     }
 
-    // 【新增】处理流式响应
-    private func handleStreamingResponse(stream: AsyncThrowingStream<String, Error>, messageId: UUID) async throws {
-        var accumulatedContent = ""
-        for try await chunk in stream {
-            accumulatedContent += chunk
-            await updateStreamingMessage(fullContent: accumulatedContent, messageId: messageId)
-        }
-        // Final update to ensure no trailing cursor and content is fully set
-        if let index = messages.firstIndex(where: { $0.id == messageId }) {
-            messages[index] = ChatMessageItem(
-                message: ChatMessage(id: messageId, sender: .gemini, content: accumulatedContent),
-                attributedContent: convertToMarkdownAttributedString(accumulatedContent),
-                timestamp: messages[index].timestamp // Keep original timestamp
-            )
+    // 【新增】处理流式响应的函数，现在负责添加成功消息
+    private func handleStreamingResponse(stream: AsyncThrowingStream<String, Error>, messageId: UUID, userMessageContent: String) async throws {
+        var receivedContent = ""
+        let userMessageId = UUID() // Generate ID for the user message now
+
+        // 【新增】先添加用户消息到 messages 数组
+        let attributedUserContent = convertToMarkdownAttributedString(userMessageContent)
+        let userMessageItem = ChatMessageItem(message: ChatMessage(id: userMessageId, sender: .user, content: userMessageContent), attributedContent: attributedUserContent, timestamp: MessageTimestamp())
+        await MainActor.run { messages.append(userMessageItem) }
+
+        // 【新增】为 AI 消息添加占位符
+        let placeholderAttributedContent = convertToMarkdownAttributedString("▌") // Use a cursor or similar
+        let placeholderAIMessageItem = ChatMessageItem(message: ChatMessage(id: messageId, sender: .gemini, content: ""), attributedContent: placeholderAttributedContent, timestamp: MessageTimestamp())
+        await MainActor.run { messages.append(placeholderAIMessageItem) }
+
+        do {
+            for try await chunk in stream {
+                receivedContent += chunk
+                // 【修改】更新 messages 数组中的 AI 消息，通过替换整个 ChatMessageItem
+                await MainActor.run {
+                    if let index = messages.firstIndex(where: { $0.id == messageId }) {
+                        let updatedMessageItem = ChatMessageItem(
+                            message: ChatMessage(id: messageId, sender: .gemini, content: receivedContent), // Create a new message object
+                            attributedContent: convertToMarkdownAttributedString(receivedContent + "▌"), // Append cursor while streaming
+                            timestamp: messages[index].timestamp // Keep original timestamp
+                        )
+                        messages[index] = updatedMessageItem // Replace the item in the array
+                    }
+                }
+            }
+
+            // Stream finished successfully, remove cursor and finalize message
+            await MainActor.run {
+                if let index = messages.firstIndex(where: { $0.id == messageId }) {
+                    let finalMessageItem = ChatMessageItem(
+                        message: ChatMessage(id: messageId, sender: .gemini, content: receivedContent), // Create a new message object
+                        attributedContent: convertToMarkdownAttributedString(receivedContent), // Final content without cursor
+                        timestamp: messages[index].timestamp // Keep original timestamp
+                    )
+                    messages[index] = finalMessageItem // Replace with final item
+                }
+                // 【成功时】清除重试状态
+                retryMessageContent = nil
+                showingRetryIcon = false
+            }
+
+        } catch {
+            // 【流式过程中发生错误】移除 AI 占位符（或部分内容），并由 catch 在外层处理错误和显示重试图标
+            await MainActor.run {
+                if let index = messages.firstIndex(where: { $0.id == messageId }) {
+                     messages.remove(at: index)
+                }
+                // Note: The outer catch block in sendMessage will handle setting retryMessageContent and showingRetryIcon
+            }
+            throw error // Rethrow to be caught by the outer catch block
         }
     }
 
-    // 【新增】在主线程更新流式消息内容
-    @MainActor
-    private func updateStreamingMessage(fullContent: String, messageId: UUID) {
-        if let index = messages.firstIndex(where: { $0.id == messageId }) {
-            // Add a blinking cursor effect to the streaming content
-            let streamingTextWithCursor = fullContent + "▌"
-            messages[index] = ChatMessageItem(
-                message: ChatMessage(id: messageId, sender: .gemini, content: fullContent), // Store raw full content
-                attributedContent: convertToMarkdownAttributedString(streamingTextWithCursor),
-                timestamp: messages[index].timestamp
-            )
+    // 【新增】重试发送消息的函数
+    private func retrySendMessage() {
+        guard let contentToRetry = retryMessageContent, !isSending, let articleToChat = selectedArticle else {
+            return // Nothing to retry or already sending
+        }
+        // Clear retry state before retrying
+        retryMessageContent = nil
+        showingRetryIcon = false
+        // Call sendMessage with the content that needs retrying
+        sendMessage(with: contentToRetry)
+    }
+
+    // 【新增】sendMessage 的重载，用于接受要发送的消息内容
+    private func sendMessage(with content: String) {
+        // Re-implement the core sending logic here, similar to the original sendMessage
+        // But use the 'content' parameter instead of inputText
+
+        guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !isSending, let articleToChat = selectedArticle else {
+             if selectedArticle == nil { // Check this specific error again
+                 self.chatError = .unknown("请先选择一篇文章开始对话。")
+             }
+             return
+         }
+
+         let apiKey = UserDefaults.standard.string(forKey: "geminiApiKey") ?? ""
+         guard !apiKey.isEmpty else {
+             self.chatError = .invalidApiKey
+             return
+         }
+
+         isSending = true
+         // Do NOT set retryMessageContent here, it's already set (or we are retrying it)
+         showingRetryIcon = false // Hide retry icon on retry attempt
+
+         // inputText and selectedPrompts are already handled by the main sendMessage or are irrelevant for retry
+
+         let aiMessageId = UUID() // Generate new AI message ID for this attempt
+         streamingMessageId = aiMessageId // Update streaming ID
+         streamingContent = ""
+
+         let apiHistory = messages.map { $0.message } // Use current messages as history
+
+         Task {
+             do {
+                 let stream = try await GeminiService.chatWithGemini(
+                     articleContent: articleToChat.content ?? "",
+                     history: apiHistory,
+                     newMessage: content, // Use the provided content for the new message
+                     apiKey: apiKey
+                 )
+
+                 // handleStreamingResponse will now add the user message and AI message upon success
+                 try await handleStreamingResponse(stream: stream, messageId: aiMessageId, userMessageContent: content)
+
+                 await cleanupAfterSend() // This should clear isSending
+
+             } catch {
+                 await MainActor.run {
+                     // Handle errors during retry - remove the AI placeholder if added
+                     // handleStreamingResponse now adds the user and AI placeholder. If an error happens inside
+                     // handleStreamingResponse (e.g., during stream processing), it throws and we land here.
+                     // handleStreamingResponse's catch block should remove the AI placeholder.
+                     // This outer catch block sets the error and shows the retry icon.
+
+                     handleError(error) // handleError sets chatError and isSending=false
+                     // 【失败时】设置重试状态
+                     retryMessageContent = content // Re-set the content to retry
+                     showingRetryIcon = true // Show retry icon
+                 }
+             }
+         }
+    }
+
+    // 【新增】在消息旁边显示重试图标的 View
+    @ViewBuilder
+    private func RetryIconView(for messageItem: ChatMessageItem) -> some View {
+        // Show icon only for the last user message if retryMessageContent is set
+        // This logic assumes only the very last failed user message is retriable
+        if showingRetryIcon && messageItem.message.sender == .user && messageItem.message.content == retryMessageContent {
+             Button(action: retrySendMessage) {
+                 Image(systemName: "arrow.clockwise.circle.fill")
+                     .foregroundColor(.red)
+             }
+             .padding(.leading, 4)
+             // Ensure the button is interactable and doesn't interfere with text selection
+             .buttonStyle(PlainButtonStyle())
         }
     }
 
@@ -684,15 +892,19 @@ struct ChatBubble: View {
 
             // 【恢复】选中文字选项
             Button {
-                // 将 AttributedString 包装在 Identifiable 结构体中
-                selectedMessageContentToSelect = SelectableContent(attributedContent: attributedContent)
+                // 将 AttributedString 和字体大小包装在 Identifiable 结构体中
+                // 【修复】这里不再直接访问 AIChatView 的 chatSummaryFontSize，而是使用 ChatBubble 自身接收的 fontSize
+                selectedMessageContentToSelect = SelectableContent(
+                    attributedContent: attributedContent,
+                    fontSize: fontSize // <-- 已修复：使用 ChatBubble 自身接收的 fontSize
+                )
             } label: {
                 Label("选中文字", systemImage: "text.cursor")
             }
 
             // 分享选项 (如果需要)
             // if message.sender == .gemini { // Share only for Gemini messages
-            //     Button { shareContent(message.content) } label: { Label("分享", systemImage: "square.and.arrow.up") }
+            //     Button { shareContent(message.content) } label { Label("分享", systemImage: "square.and.arrow.up") }
             // }
         }
     }
@@ -717,11 +929,11 @@ struct AIChatView_Previews: PreviewProvider {
         // This might require a temporary init or a way to inject state for preview
         
         return Group {
-            AIChatView(article: .constant(article))
+            AIChatView(article: .constant(article), selectedTab: .constant(.articleList), previousTabType: nil, dragOffset: .constant(.zero))
                 .environment(\.managedObjectContext, context)
                 .previewDisplayName("With Article")
             
-            AIChatView(article: .constant(nil))
+            AIChatView(article: .constant(nil), selectedTab: .constant(.articleList), previousTabType: nil, dragOffset: .constant(.zero))
                 .environment(\.managedObjectContext, context)
                 .previewDisplayName("No Article (Picker)")
         }
@@ -738,15 +950,18 @@ struct AIChatView_Previews: PreviewProvider {
 // MARK: - 视图分解
 
 extension AIChatView {
-    @ViewBuilder private var chatContentListView: some View {
+    // 【修改】将 chatContentListView 改为函数，接收字体大小参数
+    @ViewBuilder private func chatContentListView(fontSize: CGFloat) -> some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 10) { // Reduced spacing
                     ForEach(messages) { messageItem in
+                        // 【修改】将接收到的字体大小传递给 messageRow
                         messageRow(
                             message: messageItem.message,
                             attributedContent: messageItem.attributedContent,
-                            timestamp: messageItem.timestamp
+                            timestamp: messageItem.timestamp,
+                            fontSize: fontSize // 使用接收到的字体大小
                         )
                     }
                 }
@@ -769,14 +984,15 @@ extension AIChatView {
     private func messageRow(
         message: ChatMessage,
         attributedContent: AttributedString,
-        timestamp: MessageTimestamp
+        timestamp: MessageTimestamp,
+        fontSize: CGFloat // 【新增】接收字体大小参数
     ) -> some View {
         ChatBubble(
             message: message,
             attributedContent: attributedContent,
             timestamp: timestamp,
             isStreaming: streamingMessageId == message.id && message.sender == .gemini,
-            fontSize: CGFloat(chatSummaryFontSize),
+            fontSize: fontSize, // 使用接收到的字体大小参数
             showingSelectTextView: $showingMessageMenu,
             selectedMessageContentToSelect: $selectedMessageContentToSelect,
             onCopyMessage: {
@@ -863,6 +1079,7 @@ extension AIChatView {
 struct SelectableTextViewRepresentable: UIViewRepresentable {
     let attributedText: NSAttributedString
     @Binding var textView: UITextView
+    let fontSize: CGFloat // 【新增】接收字体大小
     
     func makeUIView(context: Context) -> UITextView {
         let textView = UITextView()
@@ -872,7 +1089,8 @@ struct SelectableTextViewRepresentable: UIViewRepresentable {
         textView.backgroundColor = .clear
         textView.textContainerInset = .zero
         textView.textContainer.lineFragmentPadding = 0
-        // 可以根据需要配置字体、颜色等，或者从 AttributedString 中继承
+        // 【新增】设置字体大小
+        textView.font = UIFont.systemFont(ofSize: fontSize)
         
         return textView
     }
@@ -880,11 +1098,13 @@ struct SelectableTextViewRepresentable: UIViewRepresentable {
     func updateUIView(_ uiView: UITextView, context: Context) {
         uiView.attributedText = attributedText
         // 【新增】打印 NSAttributedString 内容进行调试
-        print("SelectableTextViewRepresentable updateUIView - Received NSAttributedString (length: \(attributedText.length))")
+        print("SelectableTextViewRepresentable updateUIView - Received NSAttributedString (length: \(attributedText.length)), fontSize: \(fontSize)")
         print("Content Preview: \(attributedText.string.prefix(200))...")
         // 确保文本视图内容可以滚动和选择
         uiView.isSelectable = true
         uiView.isScrollEnabled = true
+        // 【新增】再次设置字体大小，确保更新时应用
+        uiView.font = UIFont.systemFont(ofSize: fontSize)
     }
 }
 
@@ -892,6 +1112,7 @@ struct SelectableTextViewRepresentable: UIViewRepresentable {
 struct SelectTextView: View {
     @Environment(\.dismiss) var dismiss
     let contentToSelect: AttributedString
+    let fontSize: CGFloat // 【新增】接收字体大小
     
     // 【新增】用于获取 UITextView 实例以便访问选中内容
     @State private var textView = UITextView() 
@@ -902,11 +1123,12 @@ struct SelectTextView: View {
         return NSAttributedString(contentToSelect as Foundation.AttributedString)
     }
     
-    // 【修改】显式添加一个带有参数标签的初始化方法
-    init(attributedContent: AttributedString) {
+    // 【修改】显式添加一个带有参数标签的初始化方法，并接收 fontSize
+    init(attributedContent: AttributedString, fontSize: CGFloat) {
         self.contentToSelect = attributedContent
+        self.fontSize = fontSize
         // 【新增】打印 AttributedString 内容进行调试
-        print("SelectTextView initialized with AttributedString (length: \(contentToSelect.characters.count))")
+        print("SelectTextView initialized with AttributedString (length: \(contentToSelect.characters.count)), fontSize: \(fontSize)")
         print("Content Preview: \(String(contentToSelect.characters.prefix(200)))... ")
     }
     
@@ -914,7 +1136,10 @@ struct SelectTextView: View {
         NavigationView { // 使用 NavigationView 提供标题和关闭按钮
             VStack {
                 // 使用我们创建的 UIViewRepresentable，并将 UITextView 实例绑定到 @State 变量
-                SelectableTextViewRepresentable(attributedText: nsAttributedString, textView: $textView)
+                // 【修改】传递 fontSize 给 SelectableTextViewRepresentable
+                // 注意：SelectTextView 内部不应直接访问 AIChatView 的 chatSummaryFontSize。
+                // 而是应该使用通过 init 方法传递进来的 fontSize 参数。
+                SelectableTextViewRepresentable(attributedText: nsAttributedString, textView: $textView, fontSize: fontSize)
                     .padding() // 添加一些内边距
             }
             .navigationTitle("选中文字")
@@ -934,4 +1159,6 @@ struct SelectTextView: View {
 struct SelectableContent: Identifiable {
     let id = UUID()
     let attributedContent: AttributedString
-} 
+    // 【新增】包含字体大小信息
+    let fontSize: CGFloat
+}

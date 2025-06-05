@@ -95,7 +95,7 @@ struct ArticleListView: View {
                     .cornerRadius(10)
             }
             .disabled(selectedArticles.isEmpty || isSummarizing) // Keep original disable logic
-            Button(action: deleteSelectedArticles) {
+            Button(action: confirmDelete) {
                 Text("删除选中")
                     .font(.system(size: 14, weight: .medium))
                     .foregroundColor(.white)
@@ -118,7 +118,7 @@ struct ArticleListView: View {
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.top, 40)
                 } else {
-                    ForEach(articles) { article in
+                    ForEach(Array(articles.enumerated()), id: \.element.objectID) { index, article in
                         ArticleCard(
                             article: article,
                             isSelected: selectedArticles.contains(ObjectIdentifier(article)),
@@ -129,6 +129,9 @@ struct ArticleListView: View {
                                 self.selectedTab = .aiChat
                             }
                         )
+                        // Apply alternating background
+                        .background(index % 2 == 0 ? Color(.systemGray5) : Color(.systemGray4))
+                        .cornerRadius(14) // Match the corner radius of the card
                     }
                 }
             }
@@ -288,12 +291,14 @@ struct ArticleListView: View {
 
         Task {
             do {
-                let summaryText = try await GeminiService.summarizeArticles(articles: selectedArticlesData, apiKey: apiKey, summaryPrompt: summaryPrompt) // Assuming GeminiService exists
+                let summaryText = try await GeminiService.summarizeArticles(articles: selectedArticlesData, apiKey: apiKey, summaryPrompt: summaryPrompt)
 
-                // Delete existing summaries
-                let fetchRequest: NSFetchRequest<NSFetchRequestResult> = BatchSummary.fetchRequest()
-                let deleteRequest = NSBatchDeleteRequest(fetchRequest: fetchRequest)
-                try viewContext.execute(deleteRequest)
+                // Delete existing summaries (Replace batch delete with standard fetch and delete)
+                let fetchRequest: NSFetchRequest<BatchSummary> = BatchSummary.fetchRequest()
+                let existingSummaries = try viewContext.fetch(fetchRequest)
+                for summary in existingSummaries {
+                    viewContext.delete(summary)
+                }
 
                 // Create and save new summary
                 let newSummary = BatchSummary(context: viewContext)
@@ -302,9 +307,11 @@ struct ArticleListView: View {
                 newSummary.timestamp = Date()
                 try viewContext.save()
 
-                await MainActor.run {
-                    selectedTab = .summary
-                    isSummarizing = false
+                // 【修改】使用 DispatchQueue.main.async 来确保 UI 更新在主线程进行，并在保存完成后执行
+                DispatchQueue.main.async {
+                    self.selectedTab = .summary
+                    self.isSummarizing = false
+                    print("[ArticleListView] Batch summary saved, switching to Summary tab.")
                 }
 
             } catch {
@@ -330,6 +337,16 @@ struct ArticleListView: View {
             self.showingError = true
             print("Error deleting articles: \(error)")
         }
+    }
+
+    // 添加删除确认对话框
+    private func confirmDelete() {
+        let alert = UIAlertController(title: "确认删除", message: "您确定要删除选中的文章吗？", preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        alert.addAction(UIAlertAction(title: "删除", style: .destructive) { _ in
+            self.deleteSelectedArticles()
+        })
+        UIApplication.shared.windows.first?.rootViewController?.present(alert, animated: true)
     }
 
     // MARK: - File Import Handling
@@ -454,7 +471,7 @@ struct ArticleCard: View {
             }
             .buttonStyle(PlainButtonStyle()) // Keep clicks from propagating if card is in a List
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 0) {
                 Text(article.title ?? "无标题")
                     .font(.system(size: 15, weight: .medium))
                     .foregroundColor(Color(.label)) // Adapts to light/dark mode
@@ -483,7 +500,8 @@ struct ArticleCard: View {
                     .shadow(color: Color.pink.opacity(0.18), radius: 4, x: 0, y: 2)
             }
         }
-        .padding(16)
+        .padding(.vertical, 10)
+        .padding(.horizontal, 16)
         .background(Material.thin) // Using Material for a modern look, similar to .white.opacity(0.8) but adapts better
         .cornerRadius(14)
         .shadow(color: Color.black.opacity(0.05), radius: 8, x: 0, y: 2)

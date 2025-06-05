@@ -27,8 +27,7 @@ struct SummaryView: View {
         // 正则表达式模式：匹配 ```markdown\n(内容)\n```
         // (?s) 标志允许 . 匹配换行符，等效于 [\s\S]
         // *? 表示非贪婪匹配
-        let pattern = "(?s)```markdown\\n(.*?)\\n```"
-        
+        print("raw: \(rawSummary)")
         do {
             let regex = try NSRegularExpression(pattern: pattern, options: [])
             let nsRange = NSRange(rawSummary.startIndex..<rawSummary.endIndex, in: rawSummary)

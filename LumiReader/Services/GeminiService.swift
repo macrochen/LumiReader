@@ -91,7 +91,7 @@ struct GeminiService {
         var contents: [Content] = []
         
         // Add chat history
-        for message in history {
+        for message in history.dropLast() {
             let role = message.sender == .user ? "user" : "model"
             contents.append(
                 Content(
@@ -104,7 +104,7 @@ struct GeminiService {
         }
         
         // Add the new user message including article context and prompts
-        var userMessageText = "基于以下文章内容回复我的问题，请用中文。文章内容：\n\n\(articleContent)\n\n我的问题：\n\(newMessage)"
+        let userMessageText = "基于以下文章内容回复我的问题，请用中文。文章内容：\n\n\(articleContent)\n\n我的问题：\n\(newMessage)"
         
         contents.append(
             Content(
@@ -209,7 +209,7 @@ struct GeminiService {
                               }
                               
                               // Print the jsonString for debugging
-                              print("Received JSON Chunk:\n\(jsonString)")
+                            //   print("Received JSON Chunk:\n\(jsonString)")
                               
                               if let jsonData = jsonString.data(using: .utf8) {
                                   do {
@@ -222,7 +222,7 @@ struct GeminiService {
                                       
                                       // Check if the response indicates the end of the stream
                                       if let candidates = streamResponse.candidates, let firstCandidate = candidates.first, firstCandidate.finishReason == "STOP" {
-                                          print("Received finishReason: STOP. Finishing stream.")
+                                        //   print("Received finishReason: STOP. Finishing stream.")
                                           continuation.finish()
                                           return // Exit the loop after finishing
                                       }
@@ -293,7 +293,7 @@ struct GeminiService {
         var contents: [Content] = []
         
         // Add chat history
-        for message in history {
+        for message in history.dropLast() {
             let role = message.sender == .user ? "user" : "model"
             contents.append(
                 Content(
@@ -307,7 +307,7 @@ struct GeminiService {
         
         // Add the new user message including article context and prompts
         // Keep the same prompt structure as the streaming version
-        var userMessageText = "基于以下文章内容回复我的问题，请用中文。文章内容：\n\n\(articleContent)\n\n我的问题：\n\(newMessage)"
+        let userMessageText = "基于以下文章内容回复我的问题，请用中文。文章内容：\n\n\(articleContent)\n\n我的问题：\n\(newMessage)"
         
         contents.append(
             Content(
