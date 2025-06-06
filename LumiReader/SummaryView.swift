@@ -22,6 +22,16 @@ struct SummaryView: View {
     // 【新增】用于读取文字大小设置
     @AppStorage("chatSummaryFontSize") private var chatSummaryFontSize: Double = 15.0
 
+    @State private var isProcessing = false
+    @State private var errorMessage: String?
+    @State private var showingError = false
+    
+    // 添加 TTS 服务
+    @StateObject private var ttsService = TTSService.shared
+    
+    // 添加正则表达式模式
+    private let pattern = "(?s)```markdown\\n(.*?)\\n```"
+
     /// 预处理 Markdown 文本，移除包裹的 ```markdown ... ``` 代码块。
     private func preprocessMarkdownSummary(_ rawSummary: String) -> String {
         // 正则表达式模式：匹配 ```markdown\n(内容)\n```
@@ -52,6 +62,61 @@ struct SummaryView: View {
         return rawSummary
     }
 
+    // 添加 TTS 控制面板视图
+    private var ttsControlPanel: some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 16) {
+                // 播放控制按钮组
+                HStack(spacing: 12) {
+                    Button(action: {
+                        if let latestSummary = batchSummaries.first,
+                           let content = latestSummary.content {
+                            if !ttsService.isPlaying && !ttsService.isPaused {
+                                // 如果是新开始播放，需要获取文本
+                                ttsService.speak(preprocessMarkdownSummary(content))
+                            } else {
+                                ttsService.togglePlayPause()
+                            }
+                        }
+                    }) {
+                        Image(systemName: ttsService.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                            .font(.system(size: 32))
+                            .foregroundColor(.blue)
+                    }
+                    
+                    Button(action: {
+                        ttsService.stop()
+                    }) {
+                        Image(systemName: "stop.circle.fill")
+                            .font(.system(size: 32))
+                            .foregroundColor(.red)
+                    }
+                    
+                    // 语速控制
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("语速")
+                                .font(.system(size: 12))
+                                .foregroundColor(.gray)
+                                .frame(width: 40, alignment: .leading)
+                            Slider(value: $ttsService.currentRate, in: 0.0...1.0)
+                                .onChange(of: ttsService.currentRate) { newValue in
+                                    ttsService.updateRate(newValue)
+                                }
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(Color(.systemBackground))
+                .cornerRadius(12)
+                .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+        }
+    }
+
     var body: some View {
         ZStack {
             LinearGradient(gradient: Gradient(colors: [Color(red: 0.90, green: 0.95, blue: 1.0), Color(red: 0.85, green: 0.91, blue: 1.0)]), startPoint: .topLeading, endPoint: .bottomTrailing)
@@ -75,7 +140,9 @@ struct SummaryView: View {
                             if let latestSummary = batchSummaries.first {
                                 let markdownContent = latestSummary.content ?? ""
                                 if !markdownContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-
+                                    // 添加 TTS 控制面板
+                                    ttsControlPanel
+                                    
                                     // 2. 对原始 Markdown 进行预处理
                                     let processedMarkdownContent = preprocessMarkdownSummary(markdownContent)
                                     // Use MarkdownWebView with allArticles

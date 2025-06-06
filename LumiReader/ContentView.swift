@@ -34,7 +34,7 @@ struct ContentView: View {
             SummaryView(selectedTab: $selectedTab, selectedArticleForChat: $selectedArticleForChat)
                 .tabItem {
                     Label("内容总结", systemImage: "doc.text.magnifyingglass")
-                }
+                    }
                 .tag(TabType.summary)
             
             // 【修改】将 previousTabType 和 aiChatButtonOffset 传递给 AIChatView
@@ -50,7 +50,7 @@ struct ContentView: View {
                     Label("设置", systemImage: "gear")
                 }
                 .tag(TabType.settings)
-        }
+            }
         // 【新增】监听 selectedTab 的变化，更新 previousTabType
         .onChange(of: selectedTab) { oldTab, newTab in
             // 当切换到 AI 对话 Tab 时，记录当前 Tab 作为 previousTabType

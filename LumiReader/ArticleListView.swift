@@ -16,6 +16,12 @@ struct ArticleListView: View {
         animation: .default)
     private var articles: FetchedResults<Article>
 
+    @FetchRequest(
+        sortDescriptors: [NSSortDescriptor(keyPath: \Article.importDate, ascending: false)],
+        predicate: NSPredicate(format: "importDate >= %@", Calendar.current.startOfDay(for: Date()) as NSDate),
+        animation: .default)
+    private var todayArticles: FetchedResults<Article>
+
     @Binding var selectedTab: TabType
     @Binding var selectedArticleForChat: Article?
 
@@ -29,6 +35,11 @@ struct ArticleListView: View {
 
     @State private var showingImportOptions = false
     @State private var isImportingLocalFile = false
+
+    // 添加统计相关的状态
+    @State private var totalDeletedCount: Int = UserDefaults.standard.integer(forKey: "totalDeletedCount")
+    @State private var todayDeletedCount: Int = UserDefaults.standard.integer(forKey: "todayDeletedCount")
+    @State private var lastResetDate: Date = UserDefaults.standard.object(forKey: "lastResetDate") as? Date ?? Date()
 
     @State private var importError: String? // Replaces errorMessage for import-specific errors for clarity
     @State private var isSummarizing = false
@@ -146,7 +157,9 @@ struct ArticleListView: View {
     private var mainContentContainer: some View {
         VStack(spacing: 0) {
             titleBar
-
+            
+            statisticsView  // 添加统计视图
+            
             operationToolbarView
                 .padding(.horizontal, 20)
                 .padding(.vertical, 8)
@@ -197,6 +210,43 @@ struct ArticleListView: View {
             .ignoresSafeArea()
     }
 
+    // 修改统计视图
+    private var statisticsView: some View {
+        HStack(spacing: 12) {
+            StatCard(
+                title: "已读文章",
+                value: "\(totalDeletedCount)",
+                gradient: [Color.blue, Color.blue.opacity(0.8)]
+            )
+            StatCard(
+                title: "今日已读",
+                value: "\(todayDeletedCount)",
+                gradient: [Color.green, Color.green.opacity(0.8)]
+            )
+            StatCard(
+                title: "待读文章",
+                value: "\(articles.count)",
+                gradient: [Color.purple, Color.purple.opacity(0.8)]
+            )
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 8)
+        .onAppear {
+            checkAndResetDailyCount()
+        }
+    }
+
+    // 添加检查并重置每日计数的函数
+    private func checkAndResetDailyCount() {
+        let calendar = Calendar.current
+        if !calendar.isDate(lastResetDate, inSameDayAs: Date()) {
+            // 如果不是同一天，重置今日计数
+            todayDeletedCount = 0
+            lastResetDate = Date()
+            UserDefaults.standard.set(todayDeletedCount, forKey: "todayDeletedCount")
+            UserDefaults.standard.set(lastResetDate, forKey: "lastResetDate")
+        }
+    }
 
     // MARK: - Body
     var body: some View {
@@ -325,12 +375,18 @@ struct ArticleListView: View {
         }
     }
 
+    // 修改删除文章的函数
     private func deleteSelectedArticles() {
         let articlesToDelete = articles.filter { selectedArticles.contains(ObjectIdentifier($0)) }
         articlesToDelete.forEach(viewContext.delete)
 
         do {
             try viewContext.save()
+            // 更新删除计数
+            totalDeletedCount += articlesToDelete.count
+            todayDeletedCount += articlesToDelete.count
+            UserDefaults.standard.set(totalDeletedCount, forKey: "totalDeletedCount")
+            UserDefaults.standard.set(todayDeletedCount, forKey: "todayDeletedCount")
             selectedArticles = []
         } catch {
             self.errorMessage = "删除文章失败: \(error.localizedDescription)"
@@ -556,3 +612,32 @@ struct ArticleListView_Previews: PreviewProvider {
 
 // Placeholder for TabType if it's not defined in this file
 // enum TabType { case articleList, summary /* other cases */ }
+
+// 添加统计卡片组件
+struct StatCard: View {
+    let title: String
+    let value: String
+    let gradient: [Color]
+    
+    var body: some View {
+        VStack(alignment: .center, spacing: 4) {
+            Text(title)
+                .font(.system(size: 12))
+                .foregroundColor(.white.opacity(0.9))
+            Text(value)
+                .font(.system(size: 20, weight: .bold))
+                .foregroundColor(.white)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+        .background(
+            LinearGradient(
+                gradient: Gradient(colors: gradient),
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .cornerRadius(12)
+        .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
+    }
+}
