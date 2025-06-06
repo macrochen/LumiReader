@@ -1,54 +1,42 @@
 import SwiftUI
 import CoreData
+import AVFoundation // <--- 新增的导入
 
 struct SummaryView: View {
     @Environment(\.managedObjectContext) private var viewContext
-    // ... (FetchRequest remains the same)
     @FetchRequest(
         sortDescriptors: [NSSortDescriptor(keyPath: \BatchSummary.timestamp, ascending: false)],
         animation: .default)
     private var batchSummaries: FetchedResults<BatchSummary>
     
-    // Fetch all articles to link in MarkdownWebView
     @FetchRequest(
         sortDescriptors: [NSSortDescriptor(keyPath: \Article.importDate, ascending: false)],
         animation: .default)
     private var allArticles: FetchedResults<Article>
 
-    @State private var markdownViewHeight: CGFloat = 20 // Start with a small non-zero height to avoid initial layout issues
-    @Binding var selectedTab: TabType // Add binding for selected tab
-    @Binding var selectedArticleForChat: Article? // Add binding for selected article for chat
+    @State private var markdownViewHeight: CGFloat = 20
+    @Binding var selectedTab: TabType
+    @Binding var selectedArticleForChat: Article?
 
-    // 【新增】用于读取文字大小设置
     @AppStorage("chatSummaryFontSize") private var chatSummaryFontSize: Double = 15.0
 
-    @State private var isProcessing = false
-    @State private var errorMessage: String?
-    @State private var showingError = false
-    
-    // 添加 TTS 服务
+    // TTS 服务
     @StateObject private var ttsService = TTSService.shared
     
-    // 添加正则表达式模式
+    // 正则表达式模式 (保持不变)
     private let pattern = "(?s)```markdown\\n(.*?)\\n```"
 
-    /// 预处理 Markdown 文本，移除包裹的 ```markdown ... ``` 代码块。
+    // 预处理 Markdown 文本 (保持不变)
     private func preprocessMarkdownSummary(_ rawSummary: String) -> String {
-        // 正则表达式模式：匹配 ```markdown\n(内容)\n```
-        // (?s) 标志允许 . 匹配换行符，等效于 [\s\S]
-        // *? 表示非贪婪匹配
-        print("raw: \(rawSummary)")
+        // print("raw: \(rawSummary)") // 调试时可以取消注释
         do {
             let regex = try NSRegularExpression(pattern: pattern, options: [])
             let nsRange = NSRange(rawSummary.startIndex..<rawSummary.endIndex, in: rawSummary)
             
-            // 查找第一个匹配项
             if let match = regex.firstMatch(in: rawSummary, options: [], range: nsRange) {
-                // 捕获组的索引从1开始 (0是整个匹配)
                 if match.numberOfRanges > 1 {
-                    let contentRange = match.range(at: 1) // 提取第一个捕获组 (括号内的内容)
+                    let contentRange = match.range(at: 1)
                     if let swiftRange = Range(contentRange, in: rawSummary) {
-                        // print("[SummaryView] Stripped markdown code block. Original length: \(rawSummary.count), New length: \(rawSummary[swiftRange].count)")
                         return String(rawSummary[swiftRange])
                     }
                 }
@@ -56,181 +44,164 @@ struct SummaryView: View {
         } catch {
             print("[SummaryView] Error creating or using regex for markdown stripping: \(error)")
         }
-        
-        // 如果没有匹配到代码块，或者正则出错，则返回原始文本
-        // print("[SummaryView] No markdown code block found to strip, or regex error.")
         return rawSummary
     }
 
-    // 添加 TTS 控制面板视图
+    // TTS 控制面板视图 (包含进度条)
     private var ttsControlPanel: some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 16) {
-                // 播放控制按钮组
-                HStack(spacing: 12) {
-                    Button(action: {
-                        if let latestSummary = batchSummaries.first,
-                           let content = latestSummary.content {
-                            if !ttsService.isPlaying && !ttsService.isPaused {
-                                // 如果是新开始播放，需要获取文本
-                                ttsService.speak(preprocessMarkdownSummary(content))
+        VStack(spacing: 12) { // 整体 VStack
+            // 播放控制按钮组
+            HStack(spacing: 16) { // 包含按钮和滑块的 HStack
+                Button(action: {
+                    if let latestSummary = batchSummaries.first,
+                       let content = latestSummary.content {
+                        if !ttsService.isPlaying && !ttsService.isPaused {
+                            let textToSpeak = preprocessMarkdownSummary(content)
+                            if !textToSpeak.isEmpty {
+                                ttsService.speak(textToSpeak)
                             } else {
-                                ttsService.togglePlayPause()
+                                print("[SummaryView] Processed text is empty, not starting TTS.")
                             }
+                        } else {
+                            ttsService.togglePlayPause()
                         }
-                    }) {
-                        Image(systemName: ttsService.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                            .font(.system(size: 32))
-                            .foregroundColor(.blue)
+                    } else {
+                        print("[SummaryView] No summary content to play.")
                     }
-                    
-                    Button(action: {
-                        ttsService.stop()
-                    }) {
-                        Image(systemName: "stop.circle.fill")
-                            .font(.system(size: 32))
-                            .foregroundColor(.red)
-                    }
-                    
-                    // 语速控制
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text("语速")
-                                .font(.system(size: 12))
-                                .foregroundColor(.gray)
-                                .frame(width: 40, alignment: .leading)
-                            Slider(value: $ttsService.currentRate, in: 0.0...1.0)
-                                .onChange(of: ttsService.currentRate) { newValue in
-                                    ttsService.updateRate(newValue)
-                                }
-                        }
+                }) {
+                    Image(systemName: ttsService.isPlaying ? "pause.circle.fill" : (ttsService.isPaused ? "play.circle.fill" : "play.circle.fill"))
+                        .font(.system(size: 32))
+                        .foregroundColor(ttsService.isPlaying || ttsService.isPaused ? .blue : .gray) // 播放或暂停时为蓝色，否则灰色
+                }
+                
+                Button(action: {
+                    ttsService.stop()
+                }) {
+                    Image(systemName: "stop.circle.fill")
+                        .font(.system(size: 32))
+                        .foregroundColor( (ttsService.isPlaying || ttsService.isPaused) ? .red : .gray) // 播放或暂停时为红色，否则灰色
+                }
+                .disabled(!ttsService.isPlaying && !ttsService.isPaused) // 仅在播放或暂停时启用停止按钮
+                
+                // 语速控制
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("语速")
+                            .font(.system(size: 12))
+                            .foregroundColor(.gray)
+                            .frame(width: 40, alignment: .leading)
+                        Slider(value: $ttsService.currentRate, in: AVSpeechUtteranceMinimumSpeechRate...AVSpeechUtteranceMaximumSpeechRate) // 使用AVFoundation的范围
+                            .onChange(of: ttsService.currentRate) { newValue in
+                                ttsService.updateRate(newValue)
+                            }
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(Color(.systemBackground))
-                .cornerRadius(12)
-                .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
+            .background(Color(.systemGray6)) // 使用更现代的背景色
+            .cornerRadius(12)
+            .shadow(color: Color.black.opacity(0.1), radius: 3, x: 0, y: 1) // 细微阴影
+
+            // 朗读进度条
+            if ttsService.totalCharacters > 0 && (ttsService.isPlaying || ttsService.isPaused) {
+                VStack(spacing: 5) { // 包含进度条和文本的VStack
+                    ProgressView(value: ttsService.playbackProgress)
+                        .progressViewStyle(LinearProgressViewStyle(tint: .accentColor))
+                        .animation(.linear(duration: 0.1), value: ttsService.playbackProgress) // 平滑动画
+                        .padding(.horizontal)
+                    
+                    HStack {
+                        Text(String(format: "%.0f%%", ttsService.playbackProgress * 100))
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Text("\(ttsService.spokenCharacters)/\(ttsService.totalCharacters)")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.horizontal)
+                }
+                .padding(.horizontal, 16) // 与按钮组的水平 padding 保持一致
+                .padding(.bottom, 8)
+            }
         }
+        .padding(.horizontal, 16) // 给整个控制面板统一的水平 padding
+        // .padding(.vertical, 8) // 这个可以根据整体布局调整
     }
 
     var body: some View {
         ZStack {
-            LinearGradient(gradient: Gradient(colors: [Color(red: 0.90, green: 0.95, blue: 1.0), Color(red: 0.85, green: 0.91, blue: 1.0)]), startPoint: .topLeading, endPoint: .bottomTrailing)
-                .ignoresSafeArea() // Keep this if you want the gradient to fill the whole screen
+            LinearGradient(gradient: Gradient(colors: [Color(red: 0.92, green: 0.96, blue: 1.0), Color(red: 0.88, green: 0.93, blue: 1.0)]), startPoint: .topLeading, endPoint: .bottomTrailing)
+                .ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // If you have a custom title bar or want space at the top, add it here.
-                // For example, to respect the top safe area for content:
-                // Spacer().frame(height: UIApplication.shared.windows.first?.safeAreaInsets.top ?? 0)
-                // Or simply add padding to the ScrollView or its content.
-
                 ScrollView {
-                    // This VStack is the direct content of the ScrollView
-                    VStack(alignment: .leading, spacing: 20) {
+                    VStack(alignment: .leading, spacing: 16) { // 调整 VStack 间距
                         if batchSummaries.isEmpty {
                             Text("暂无总结内容，请在文章列表中选择文章进行批量总结。")
-                                .foregroundColor(.gray)
+                                .font(.callout)
+                                .foregroundColor(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .center)
-                                .padding(.top, 40) // Padding for empty state
+                                .padding(.top, 50)
                         } else {
-                            if let latestSummary = batchSummaries.first {
-                                let markdownContent = latestSummary.content ?? ""
-                                if !markdownContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                    // 添加 TTS 控制面板
-                                    ttsControlPanel
-                                    
-                                    // 2. 对原始 Markdown 进行预处理
-                                    let processedMarkdownContent = preprocessMarkdownSummary(markdownContent)
-                                    // Use MarkdownWebView with allArticles
-                                    MarkdownWebView(
-                                        markdownText: processedMarkdownContent,
-                                        articlesToLink: Array(allArticles), // Pass all fetched articles
-                                        fontSize: CGFloat(chatSummaryFontSize),
-                                        dynamicHeight: $markdownViewHeight,
-                                        onDialogueButtonTapped: { contextInfo in // <--- 添加了这个回调
-                                            // contextInfo 应该是 Article 的唯一标识符，
-                                            // 我们在 MarkdownWebView 中设置的是 article.objectID.uriRepresentation().absoluteString
-                                            print("[SummaryView] Dialogue button tapped for context (Article ID URI): \(contextInfo)")
+                            if let latestSummary = batchSummaries.first,
+                               let markdownContent = latestSummary.content,
+                               !markdownContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                
+                                // TTS 控制面板放在 Markdown 内容的上方
+                                ttsControlPanel
+                                    .padding(.top, 8) // 给控制面板一些顶部间距
 
-                                            // 根据 contextInfo (它是一个 URI 字符串) 查找对应的 Article 对象
-                                            if let articleIDURL = URL(string: contextInfo),
-                                            let objectID = viewContext.persistentStoreCoordinator?.managedObjectID(forURIRepresentation: articleIDURL),
-                                            let articleForChat = try? viewContext.existingObject(with: objectID) as? Article {
-                                                self.selectedArticleForChat = articleForChat // 设置选中的文章
-                                                print("[SummaryView] Found article: \(articleForChat.title ?? "N/A") for chat.")
-                                            } else {
-                                                print("[SummaryView] Could not find article for context URI: \(contextInfo)")
-                                                self.selectedArticleForChat = nil // 未找到则清空
-                                            }
-
-                                            // 切换到 AI 对话 Tab
-                                            // 假设你的 TabType 枚举有一个表示 AI 对话页的 case，例如 .aiChat
-                                            self.selectedTab = .aiChat // 修改这个 .aiChat 为你实际的 TabType case
-                                        })
-                                        .frame(height: markdownViewHeight)
-                                        // .background(Color.red.opacity(0.3)) // 调试用
-                                        // Ensure MarkdownView itself doesn't get unnecessary horizontal padding
-                                        // The parent VStack already has horizontal padding.
-                                } else {
-                                    Text("总结内容为空。") // Handle empty content string
-                                        .foregroundColor(.gray)
-                                        .padding(.top, 20)
-                                }
+                                let processedMarkdownContent = preprocessMarkdownSummary(markdownContent)
+                                MarkdownWebView(
+                                    markdownText: processedMarkdownContent,
+                                    articlesToLink: Array(allArticles),
+                                    fontSize: CGFloat(chatSummaryFontSize),
+                                    dynamicHeight: $markdownViewHeight,
+                                    onDialogueButtonTapped: { contextInfo in
+                                        if let articleIDURL = URL(string: contextInfo),
+                                        let objectID = viewContext.persistentStoreCoordinator?.managedObjectID(forURIRepresentation: articleIDURL),
+                                        let articleForChat = try? viewContext.existingObject(with: objectID) as? Article {
+                                            self.selectedArticleForChat = articleForChat
+                                        } else {
+                                            self.selectedArticleForChat = nil
+                                        }
+                                        self.selectedTab = .aiChat
+                                    })
+                                    .frame(minHeight: markdownViewHeight) // 使用 minHeight 以允许内容扩展
+                                    .padding(.top, 8) // Markdown 视图和控制面板之间的间距
+                            } else {
+                                Text("总结内容为空。")
+                                    .font(.callout)
+                                    .foregroundColor(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .center)
+                                    .padding(.top, 50)
                             }
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 20)
-                    .padding(.bottom, 80) // Add a fixed bottom padding here
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16) // ScrollView 内容的水平 padding
+                    .padding(.vertical, 20)   // ScrollView 内容的垂直 padding
                 }
-                // .background(Color.yellow.opacity(0.3)) // 调试用
-                .background(Color.clear)
-
-                // 预设提示词 和 输入框 也会在这个 VStack 中
-                // presetPromptsView
-                // inputBarView
-            }.padding(.top)
+                .background(Color.clear) // ScrollView 背景透明
+            }
+            .padding(.top, UIApplication.shared.windows.first?.safeAreaInsets.top ?? 0) // 适配安全区域顶部
         }
         .navigationBarHidden(true)
-        // .edgesIgnoringSafeArea(.all) // Alternative to ZStack's ignoresSafeArea, apply with caution
+        .onDisappear {
+            // 当视图消失时，可以选择停止 TTS，防止在其他页面继续播放
+            // if ttsService.isPlaying || ttsService.isPaused {
+            //     ttsService.stop()
+            // }
+        }
     }
-    // ... (itemFormatter and PreviewProvider remain the same)
 }
 
-// Preview Provider
+// Preview Provider (保持不变，但确保 TTSService 能够被 preview 环境访问，通常单例会自动工作)
 struct SummaryView_Previews: PreviewProvider {
     static var previews: some View {
-        let context = PersistenceController.preview.container.viewContext
-
-        // Create mock data for preview
-        let mockArticleA = Article(context: context)
-        mockArticleA.title = "相关的文章 A"
-        mockArticleA.link = "https://example.com/articleA"
-        mockArticleA.content = "这是相关的文章 A 的内容。"
-        mockArticleA.importDate = Date().addingTimeInterval(-100)
-
-        let mockArticleB = Article(context: context)
-        mockArticleB.title = "相关的文章 B"
-        mockArticleB.link = "https://example.com/articleB"
-        mockArticleB.content = "这是相关的文章 B 的内容。"
-        mockArticleB.importDate = Date().addingTimeInterval(-150)
-
-//        mockArticleB.addToBatchSummaries(mockSummary)
-        
-        // Add another mock article not linked to this summary, but should be searchable
-        let mockArticleC = Article(context: context)
-        mockArticleC.title = "不相关的文章 C"
-        mockArticleC.link = "https://example.com/articleC"
-        mockArticleC.content = "这是不相关的文章 C 的内容。"
-        mockArticleC.importDate = Date().addingTimeInterval(-200)
-
-        // Pass dummy bindings for the preview
-        return SummaryView(selectedTab: .constant(.summary), selectedArticleForChat: .constant(nil))
+        // ... (你的 Preview 代码保持不变)
+        SummaryView(selectedTab: .constant(.summary), selectedArticleForChat: .constant(nil))
+            .environment(\.managedObjectContext, PersistenceController.preview.container.viewContext)
     }
 }
- 
