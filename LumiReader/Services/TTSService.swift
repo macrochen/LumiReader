@@ -1,39 +1,42 @@
 import Foundation
 import AVFoundation
+import Combine
 
 class TTSService: NSObject, ObservableObject {
     static let shared = TTSService()
     
-    private let synthesizer = AVSpeechSynthesizer()
+    private let synthesizer = AVSpeechSynthesizer() // 保持 private
     
     @Published var isPlaying = false
     @Published var isPaused = false
     @Published var currentRate: Float = UserDefaults.standard.float(forKey: "ttsRate") > 0 ? UserDefaults.standard.float(forKey: "ttsRate") : 0.5
     
-    // 用于追踪播放进度的属性
     @Published var totalCharacters: Int = 0
     @Published var spokenCharacters: Int = 0
     @Published var playbackProgress: Double = 0.0
     
-    private var currentText: String = "" // 存储当前朗读的完整文本
-    private var currentPosition: Int = 0 // 代表在完整文本中的当前位置
-    private var currentTextOffset: Int = 0 // 当播放剩余文本时，记录其在完整文本中的起始偏移
+    @Published var currentSpeakingSentenceIndex: Int?
+    private var sentencesWithRanges: [(text: String, originalRange: NSRange)] = []
+
+    private var currentText: String = ""
+    private var currentPosition: Int = 0
+    private var currentTextOffset: Int = 0
     
-    private let voiceIdentifier = "com.apple.ttsbundle.Mei-Jia-compact" // 默认台湾话语音
+    private let voiceIdentifier = "com.apple.ttsbundle.Mei-Jia-compact"
     private var selectedVoice: AVSpeechSynthesisVoice?
     
     override init() {
         super.init()
         synthesizer.delegate = self
         loadVoice()
-        setupAudioSession() // 设置音频会话
+        setupAudioSession()
     }
     
     private func loadVoice() {
         if let voice = AVSpeechSynthesisVoice(identifier: voiceIdentifier) {
             selectedVoice = voice
         } else {
-            selectedVoice = AVSpeechSynthesisVoice(language: "zh-CN") // 备选中文语音
+            selectedVoice = AVSpeechSynthesisVoice(language: "zh-CN")
             print("[TTSService] Preferred voice not found, using default zh-CN.")
         }
     }
@@ -50,76 +53,116 @@ class TTSService: NSObject, ObservableObject {
     // MARK: - Public Methods
     
     func speak(_ text: String) {
-        synthesizer.stopSpeaking(at: .immediate) // 确保停止任何当前播放
-        
-        currentText = text
-        currentPosition = 0
-        currentTextOffset = 0
-        isPaused = false
-        
-        // 更新进度相关属性
-        totalCharacters = text.count
-        spokenCharacters = 0
-        updatePlaybackProgress()
-        
-        if text.isEmpty {
-            print("[TTSService] Attempted to speak empty text.")
-            // 更新UI状态，即使文本为空
-            DispatchQueue.main.async {
-                self.isPlaying = false
-                self.isPaused = false
-                self.totalCharacters = 0
-                self.spokenCharacters = 0
-                self.playbackProgress = 0.0
+        // 判断是否是新的播放任务或者从完全停止状态开始
+        let isStartingNewFromStopped = self.currentText != text || (!isPlaying && !isPaused && currentPosition == 0 && totalCharacters == 0)
+
+        if isStartingNewFromStopped {
+            // 在开始新的朗读前，确保完全停止当前所有任务
+            stop() // 调用内部的 stop() 方法来清理状态和停止合成器
+
+            self.currentText = text
+            self.currentPosition = 0
+            self.currentTextOffset = 0
+            self.isPaused = false // 确保不是暂停状态，而是从头开始
+            
+            // Segment sentences for highlighting
+            self.sentencesWithRanges = []
+            (text as NSString).enumerateSubstrings(in: NSRange(location: 0, length: text.utf16.count), options: .bySentences) { (substring, substringRange, enclosingRange, stop) in
+                if let sentence = substring, !sentence.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    self.sentencesWithRanges.append((text: sentence, originalRange: substringRange))
+                }
             }
-            return
+            
+            // Reset progress and highlighting states
+            self.totalCharacters = text.utf16.count
+            self.spokenCharacters = 0
+            self.updatePlaybackProgress()
+            self.currentSpeakingSentenceIndex = nil
+            
+            if text.isEmpty {
+                print("[TTSService] Attempted to speak empty text.")
+                DispatchQueue.main.async {
+                    self.isPlaying = false
+                    self.isPaused = false
+                    self.totalCharacters = 0
+                    self.spokenCharacters = 0
+                    self.playbackProgress = 0.0
+                }
+                return
+            }
+
+            // Introduce a small delay to allow synthesizer to fully reset
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                self.startSpeakingInternal(from: self.currentText)
+            }
+        } else if isPaused {
+            resume() // If already paused, resume
+        } else if isPlaying {
+            // Already playing the same text, no action.
+            print("[TTSService] Already playing the same text, no action.")
         }
-        
-        startSpeakingInternal(from: currentText)
     }
     
     func pause() {
         if synthesizer.isSpeaking {
             synthesizer.pauseSpeaking(at: .word)
+            print("[TTSService] Paused speaking.")
         }
     }
     
     func resume() {
         if isPaused {
-            guard currentPosition < currentText.count else {
-                stop() // 如果已经到末尾，则停止
+            let nsCurrentText = currentText as NSString
+            guard currentPosition < nsCurrentText.length else {
+                // If we've reached the end, implicitly act as if it finished
+                // 确保在 resume() 之后能够正确地处理“结束”状态
+                DispatchQueue.main.async {
+                    self.speechSynthesizer(self.synthesizer, didFinish: AVSpeechUtterance(string: "")) // Trigger finish state manually
+                }
                 return
             }
-            let startIndex = currentText.index(currentText.startIndex, offsetBy: currentPosition)
-            let remainingText = String(currentText[startIndex...])
+            let remainingText = nsCurrentText.substring(from: currentPosition)
             
-            self.currentTextOffset = self.currentPosition // 更新偏移量
+            self.currentTextOffset = self.currentPosition
             
-            startSpeakingInternal(from: remainingText)
+            // Resume with a small delay for smoother transition
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                self.startSpeakingInternal(from: remainingText)
+            }
+            print("[TTSService] Resumed speaking.")
         }
     }
     
+    // MARK: - Re-adding stop() method, now public/internal for external control/cleanup
     func stop() {
-        synthesizer.stopSpeaking(at: .immediate)
-        // 状态和进度重置由 didCancel 或 didFinish 代理处理
+        // 1. 立即停止语音合成器
+        if synthesizer.isSpeaking || synthesizer.isPaused {
+            synthesizer.stopSpeaking(at: .immediate)
+            print("[TTSService] Synthesizer stopped immediately by stop() call.")
+        }
+        
+        // 2. 在主线程立即重置所有 @Published 状态，以更新 UI
+        DispatchQueue.main.async {
+            self.isPlaying = false
+            self.isPaused = false
+            self.spokenCharacters = 0
+            self.currentPosition = 0
+            self.currentTextOffset = 0
+            self.playbackProgress = 0.0 // 进度条归零
+            self.currentSpeakingSentenceIndex = nil // 清除高亮
+            print("[TTSService] All UI-related states reset to stopped.")
+        }
     }
     
     func togglePlayPause() {
-        if isPlaying { // 如果正在播放，则暂停
+        if isPlaying { // If currently playing, pause
             pause()
-        } else if isPaused { // 如果已暂停，则继续
+        } else if isPaused { // If currently paused, resume
             resume()
-        } else { // 如果未播放且未暂停（即停止状态），则从头开始播放
-            if !currentText.isEmpty {
-                // 重置进度并从头播放
-                spokenCharacters = 0
-                currentPosition = 0
-                currentTextOffset = 0
-                updatePlaybackProgress()
-                speak(currentText)
-            } else {
-                print("[TTSService] No text to play for togglePlayPause.")
-            }
+        } else {
+            // This case (neither playing nor paused) implies a stopped state.
+            // The UI will handle calling speak() from the beginning when this occurs.
+            print("[TTSService] togglePlayPause called in stopped state. UI should initiate speak().")
         }
     }
     
@@ -128,48 +171,51 @@ class TTSService: NSObject, ObservableObject {
         currentRate = clampedRate
         UserDefaults.standard.set(currentRate, forKey: "ttsRate")
         
-        if isPlaying { // 如果正在播放，则暂停再继续以应用新语速
-            // 记录当前播放的文本段，以便重新播放
-            let textToContinueFrom = String(currentText.dropFirst(currentPosition))
+        if isPlaying || isPaused {
+            synthesizer.stopSpeaking(at: .immediate) // Stop current utterance to apply new rate
             
-            synthesizer.stopSpeaking(at: .immediate) // 立即停止
+            self.currentTextOffset = self.currentPosition // Ensure offset is correct for resume
             
-            // 确保偏移量正确
-            self.currentTextOffset = self.currentPosition
-            
-            // 延迟一点点时间再播放，给synthesizer足够时间停止
-             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            // Re-start speaking with the new rate after a short delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                let nsCurrentText = self.currentText as NSString
+                guard self.currentPosition < nsCurrentText.length else {
+                    // If we were at the end, just finish
+                    DispatchQueue.main.async {
+                        self.speechSynthesizer(self.synthesizer, didFinish: AVSpeechUtterance(string: "")) // Trigger finish state manually
+                    }
+                    return
+                }
+                let textToContinueFrom = nsCurrentText.substring(from: self.currentPosition)
+                
                 if !textToContinueFrom.isEmpty {
                     self.startSpeakingInternal(from: textToContinueFrom)
-                } else if !self.currentText.isEmpty && self.currentPosition >= self.currentText.count {
-                    // 如果已经播放完毕，则重置
-                     self.stop()
+                } else if self.currentPosition >= nsCurrentText.length {
+                    DispatchQueue.main.async {
+                        self.speechSynthesizer(self.synthesizer, didFinish: AVSpeechUtterance(string: ""))
+                    }
                 }
-             }
-        } else if isPaused { // 如果已暂停，则标记需要在恢复时重建utterance
-             // resume() 方法会检查并用新语速创建 utterance
+            }
         }
     }
     
     // MARK: - Private Methods
     
     private func startSpeakingInternal(from text: String) {
-        // 在播放新utterance前，先强制停止当前的，以清除暂停等状态
-        // 这一步很重要，因为直接在 paused 状态下 speak 新的 utterance 可能导致没声音
-        // 但如果不是 paused 状态，过度 stop 也可能打断流畅性。
-        // speak() 方法开头已经 stop 过了，这里确保如果之前有 utterance 在队列，则清除。
+        // This check ensures that a new utterance is only spoken if the synthesizer is idle.
+        // It's less critical now that `speak()` calls `stop()` explicitly.
         if synthesizer.isSpeaking || synthesizer.isPaused {
-             synthesizer.stopSpeaking(at: .immediate)
+            synthesizer.stopSpeaking(at: .immediate)
+            print("[TTSService] startSpeakingInternal: Synthesizer stopping before new utterance (should be rare).")
         }
 
         let utterance = AVSpeechUtterance(string: text)
         utterance.rate = currentRate
         utterance.voice = selectedVoice
-        // utterance.postUtteranceDelay = 0.005 // 可选：添加一点延迟，有时有帮助
         
-        // 确保在主线程调用speak
         DispatchQueue.main.async {
             self.synthesizer.speak(utterance)
+            print("[TTSService] startSpeakingInternal: New utterance queued.")
         }
     }
     
@@ -178,7 +224,6 @@ class TTSService: NSObject, ObservableObject {
             playbackProgress = 0.0
             return
         }
-        // 确保 spokenCharacters 不会超过 totalCharacters
         let currentSpoken = min(spokenCharacters, totalCharacters)
         playbackProgress = Double(currentSpoken) / Double(totalCharacters)
     }
@@ -191,31 +236,22 @@ extension TTSService: AVSpeechSynthesizerDelegate {
         DispatchQueue.main.async {
             self.isPlaying = true
             self.isPaused = false
+            print("[TTSService] Delegate didStart speaking.")
         }
     }
     
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
         DispatchQueue.main.async {
-            // 检查是否所有文本都已完成
-            // currentTextOffset + utterance.speechString.count 应该等于 fullText.count
-            // 或者，如果 spokenCharacters 达到了 totalCharacters
-            // 由于我们分段播放，这个完成可能只是一个片段的完成
-            // 真正的“完成”是当 spokenCharacters >= totalCharacters
-
-            if self.currentTextOffset + utterance.speechString.count >= self.totalCharacters || self.spokenCharacters >= self.totalCharacters {
+            // Only reset if the entire text has finished
+            if self.spokenCharacters >= self.totalCharacters {
                  self.isPlaying = false
                  self.isPaused = false
-                 // 不在此处重置 spokenCharacters 和 totalCharacters，除非明确是整个任务结束
-                 // speak 方法会重置它们。这里只标记播放停止。
-                 // 如果希望播放完自动重置进度条，可以在此设置 spokenCharacters = totalCharacters 以确保进度条满
                  self.spokenCharacters = self.totalCharacters
-                 self.updatePlaybackProgress() // 更新到100%
-
+                 self.updatePlaybackProgress()
+                 self.currentSpeakingSentenceIndex = nil
+                 print("[TTSService] Delegate didFinish speaking (full text). All states reset to stopped.")
             } else {
-                // 这可能是一个片段完成，如果还有后续，isPlaying 可能不应该设为 false
-                // 但对于简单的实现，每次utterance结束，就认为当前播放停止了
-                 self.isPlaying = false
-                 self.isPaused = false
+                print("[TTSService] Delegate didFinish speaking (partial utterance, or already stopped).")
             }
         }
     }
@@ -224,6 +260,7 @@ extension TTSService: AVSpeechSynthesizerDelegate {
         DispatchQueue.main.async {
             self.isPlaying = false
             self.isPaused = true
+            print("[TTSService] Delegate didPause speaking.")
         }
     }
     
@@ -231,30 +268,47 @@ extension TTSService: AVSpeechSynthesizerDelegate {
         DispatchQueue.main.async {
             self.isPlaying = true
             self.isPaused = false
+            print("[TTSService] Delegate didContinue speaking.")
         }
     }
     
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        // When `stop()` is called from outside, it first updates states, then cancels.
+        // This delegate method ensures states are always reset if a cancellation happens,
+        // especially if not explicitly triggered by our `stop()` method.
         DispatchQueue.main.async {
             self.isPlaying = false
             self.isPaused = false
-            // 取消时，可以考虑重置进度，但这取决于产品逻辑
-            // 通常，stop() 会调用这个，所以进度应该重置为初始状态
             self.spokenCharacters = 0
             self.currentPosition = 0
             self.currentTextOffset = 0
-            // totalCharacters 保持不变，直到新的 speak()
-            self.updatePlaybackProgress()
+            self.playbackProgress = 0.0
+            self.currentSpeakingSentenceIndex = nil
+            print("[TTSService] Delegate didCancel speaking. All states reset to stopped.")
         }
     }
     
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, willSpeakRangeOfSpeechString characterRange: NSRange, utterance: AVSpeechUtterance) {
         DispatchQueue.main.async {
-            // characterRange.location 是相对于当前 utterance.speechString 的
-            // 所以绝对位置是 currentTextOffset + characterRange.location
-            self.currentPosition = self.currentTextOffset + characterRange.location
-            self.spokenCharacters = self.currentPosition // 更新已读字符数
-            self.updatePlaybackProgress() // 更新进度条
+            let absoluteLocationInFullText = self.currentTextOffset + characterRange.location
+            let absoluteRangeInFullText = NSRange(location: absoluteLocationInFullText, length: characterRange.length)
+
+            self.currentPosition = absoluteLocationInFullText
+            self.spokenCharacters = self.currentPosition
+            self.updatePlaybackProgress()
+            
+            var matchedIndex: Int?
+            for (index, sentenceData) in self.sentencesWithRanges.enumerated() {
+                let intersection = NSIntersectionRange(absoluteRangeInFullText, sentenceData.originalRange)
+                if intersection.length > 0 {
+                    matchedIndex = index
+                    break
+                }
+            }
+            
+            if self.currentSpeakingSentenceIndex != matchedIndex {
+                self.currentSpeakingSentenceIndex = matchedIndex
+            }
         }
     }
 }
