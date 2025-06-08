@@ -149,9 +149,7 @@ struct SummaryView: View {
                                let markdownContent = latestSummary.content,
                                !markdownContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                                 
-                                // TTS 控制面板放在 Markdown 内容的上方
-                                ttsControlPanel
-                                    .padding(.top, 8) // 给控制面板一些顶部间距
+                                
 
                                 let processedMarkdownContent = preprocessMarkdownSummary(markdownContent)
                                 MarkdownWebView(
@@ -184,6 +182,9 @@ struct SummaryView: View {
                     .padding(.vertical, 20)   // ScrollView 内容的垂直 padding
                 }
                 .background(Color.clear) // ScrollView 背景透明
+                                
+                ttsControlPanel
+                    .padding(.top, 8) // 给控制面板一些顶部间距
             }
             .padding(.top, UIApplication.shared.windows.first?.safeAreaInsets.top ?? 0) // 适配安全区域顶部
         }
