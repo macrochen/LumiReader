@@ -131,6 +131,7 @@ struct SummaryView: View {
     }
 
     @State private var needsReload = false
+    @State private var showCopyToast = false // 新增：Toast显示标志
 
     var body: some View {
         ZStack {
@@ -139,7 +140,7 @@ struct SummaryView: View {
 
             VStack(spacing: 0) {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 16) { // 调整 VStack 间距
+                    VStack(alignment: .leading, spacing: 16) {
                         if batchSummaries.isEmpty {
                             Text("暂无总结内容，请在文章列表中选择文章进行批量总结。")
                                 .font(.callout)
@@ -150,8 +151,6 @@ struct SummaryView: View {
                             if let latestSummary = batchSummaries.first,
                                let markdownContent = latestSummary.content,
                                !markdownContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                
-                                
 
                                 let processedMarkdownContent = preprocessMarkdownSummary(markdownContent)
                                 MarkdownWebView(
@@ -168,10 +167,17 @@ struct SummaryView: View {
                                             self.selectedArticleForChat = nil
                                         }
                                         self.selectedTab = .aiChat
-                                    })
-                                    .id(needsReload)
-                                    .frame(minHeight: markdownViewHeight)
-                                    .padding(.top, 8)
+                                    },
+                                    onAutoCopy: {
+                                        showCopyToast = true
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                                            showCopyToast = false
+                                        }
+                                    }
+                                )
+                                .id(needsReload)
+                                .frame(minHeight: markdownViewHeight)
+                                .padding(.top, 8)
                             } else {
                                 Text("总结内容为空。")
                                     .font(.callout)
@@ -181,15 +187,36 @@ struct SummaryView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 16) // ScrollView 内容的水平 padding
-                    .padding(.vertical, 20)   // ScrollView 内容的垂直 padding
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 20)
                 }
-                .background(Color.clear) // ScrollView 背景透明
-                                
+                .background(Color.clear)
+                
                 ttsControlPanel
-                    .padding(.top, 8) // 给控制面板一些顶部间距
+                    .padding(.top, 8)
             }
-            .padding(.top, UIApplication.shared.windows.first?.safeAreaInsets.top ?? 0) // 适配安全区域顶部
+            .padding(.top, UIApplication.shared.windows.first?.safeAreaInsets.top ?? 0)
+
+            // Toast 提示
+            if showCopyToast {
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        Text("已复制")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(.white)
+                            .padding(.vertical, 10)
+                            .padding(.horizontal, 24)
+                            .background(Color.black.opacity(0.85))
+                            .cornerRadius(20)
+                        Spacer()
+                    }
+                    .padding(.bottom, 60)
+                }
+                .transition(.opacity)
+                .animation(.easeInOut(duration: 0.2), value: showCopyToast)
+            }
         }
         .navigationBarHidden(true)
         .onDisappear {
