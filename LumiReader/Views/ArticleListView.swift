@@ -54,7 +54,7 @@ struct ArticleListView: View {
     // Computed property for the title bar
     private var titleBar: some View {
         HStack {
-            Text("文章列表")
+            Text("来源列表")
                 .font(.system(size: 22, weight: .semibold))
                 .foregroundColor(Color(.label))
             Spacer()
@@ -214,17 +214,17 @@ struct ArticleListView: View {
     private var statisticsView: some View {
         HStack(spacing: 12) {
             StatCard(
-                title: "已读文章",
+                title: "已读",
                 value: "\(totalDeletedCount)",
                 gradient: [Color.blue, Color.blue.opacity(0.8)]
             )
             StatCard(
-                title: "今日已读",
+                title: "今读",
                 value: "\(todayDeletedCount)",
                 gradient: [Color.green, Color.green.opacity(0.8)]
             )
             StatCard(
-                title: "待读文章",
+                title: "待读",
                 value: "\(articles.count)",
                 gradient: [Color.purple, Color.purple.opacity(0.8)]
             )
@@ -641,3 +641,4 @@ struct StatCard: View {
         .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
     }
 }
+ 

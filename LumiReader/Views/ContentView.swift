@@ -27,13 +27,13 @@ struct ContentView: View {
         TabView(selection: $selectedTab) {
             ArticleListView(selectedTab: $selectedTab, selectedArticleForChat: $selectedArticleForChat)
                 .tabItem {
-                    Label("文章列表", systemImage: "list.bullet.rectangle")
+                    Label("来源", systemImage: "list.bullet.rectangle")
                 }
                 .tag(TabType.articleList)
             
             SummaryView(selectedTab: $selectedTab, selectedArticleForChat: $selectedArticleForChat)
                 .tabItem {
-                    Label("内容总结", systemImage: "doc.text.magnifyingglass")
+                    Label("总结", systemImage: "doc.text.magnifyingglass")
                     }
                 .tag(TabType.summary)
             
@@ -41,7 +41,7 @@ struct ContentView: View {
             // 【修正】新增 selectedTab 绑定参数
             AIChatView(article: $selectedArticleForChat, selectedTab: $selectedTab, previousTabType: previousTabType, dragOffset: $aiChatButtonOffset)
                 .tabItem {
-                    Label("AI对话", systemImage: "bubble.left.and.bubble.right")
+                    Label("对话", systemImage: "bubble.left.and.bubble.right")
                 }
                 .tag(TabType.aiChat)
             

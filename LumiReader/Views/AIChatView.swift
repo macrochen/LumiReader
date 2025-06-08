@@ -188,7 +188,7 @@ struct AIChatView: View {
     @State private var isSending = false
     
     @State private var selectedPrompts: Set<Prompt> = []
-    @AppStorage("aiPromptsData") private var aiPromptsData: Data = Data()
+    @AppStorage("presetPromptsData") private var presetPromptsData: Data = Data()
     @State private var presetPrompts: [Prompt] = Prompt.DEFAULT_PRESET_PROMPTS
     
     @State private var clipboardContent: String = ""
@@ -267,7 +267,7 @@ struct AIChatView: View {
                                 updateInputTextFromSelection()
                             }) {
                                 Text(prompt.title)
-                                    .font(.system(size: 13, weight: .medium))
+                                    .font(.system(size: 18, weight: .medium))
                                     .foregroundColor(isSelected ? .white : (isExclusive ? Color.orange : Color.blue) ) // Distinct colors
                                     .padding(.vertical, 6)
                                     .padding(.horizontal, 12)
@@ -325,12 +325,24 @@ struct AIChatView: View {
         VStack(spacing: 0) {
             // Article display/picker
             // Always display the Picker
-            Picker("选择文章开始对话", selection: $selectedArticle) { // Picker now binds to @State selectedArticle
+            Picker("选择文章开始对话", selection: $selectedArticle) {
                 articlePickerContent
             }
             .pickerStyle(MenuPickerStyle())
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
+            .onChange(of: selectedArticle) { newArticle in
+                if let newArticle = newArticle {
+                    // 清空对话历史
+                    messages = []
+                    // 清空输入框
+                    inputText = ""
+                    // 清空错误状态
+                    chatError = nil
+                    // 更新绑定的文章
+                    article = newArticle
+                }
+            }
 
             Divider() // Add a divider
 
@@ -460,14 +472,14 @@ struct AIChatView: View {
     }
     
     private func loadPrompts() {
-        if let decoded = try? JSONDecoder().decode([Prompt].self, from: aiPromptsData) {
+        if let decoded = try? JSONDecoder().decode([Prompt].self, from: presetPromptsData) {
             if !decoded.isEmpty { // Only assign if decoded is not empty
                 presetPrompts = decoded
             } else {
                 presetPrompts = Prompt.DEFAULT_PRESET_PROMPTS // Fallback to default
                 // Optionally save defaults if none were loaded
                 // if let encodedDefaults = try? JSONEncoder().encode(Prompt.DEFAULT_PRESET_PROMPTS) {
-                //     aiPromptsData = encodedDefaults
+                //     presetPromptsData = encodedDefaults
                 // }
             }
         } else {

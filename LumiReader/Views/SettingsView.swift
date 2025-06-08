@@ -21,6 +21,10 @@ struct SettingsView: View {
     @State private var tempNewPromptContent: String = ""
     @AppStorage("chatSummaryFontSize") private var chatSummaryFontSize: Double = 15.0 // 默认文字大小
     
+    // 【新增】删除确认相关的状态变量
+    @State private var promptToDelete: (index: Int, title: String)? = nil
+    @State private var showingDeleteAlert = false
+    
     // MARK: - Computed Properties for Sections
 
     private var apiKeySettingView: some View {
@@ -83,7 +87,10 @@ struct SettingsView: View {
                         Image(systemName: "pencil")
                             .foregroundColor(.blue)
                     }
-                    Button(action: { deletePrompt(at: index) }) {
+                    Button(action: { 
+                        promptToDelete = (index, prompt.title)
+                        showingDeleteAlert = true
+                    }) {
                         Image(systemName: "trash")
                             .foregroundColor(.red)
                     }
@@ -101,7 +108,10 @@ struct SettingsView: View {
             HStack {
                 TextField("提示词标题", text: Binding(
                     get: { presetPrompts[index].title },
-                    set: { presetPrompts[index].title = $0 }
+                    set: { 
+                        presetPrompts[index].title = $0
+                        savePrompts() // 编辑标题后保存
+                    }
                 ))
                 .textFieldStyle(PlainTextFieldStyle())
                 .padding(6)
@@ -110,6 +120,7 @@ struct SettingsView: View {
                 .font(.system(size: 15))
                 Button(action: {
                     editingPromptIndex = nil
+                    savePrompts() // 完成编辑后保存
                 }) {
                     Image(systemName: "checkmark")
                         .foregroundColor(.blue)
@@ -117,7 +128,10 @@ struct SettingsView: View {
             }
             TextEditor(text: Binding(
                 get: { presetPrompts[index].content },
-                set: { presetPrompts[index].content = $0 }
+                set: { 
+                    presetPrompts[index].content = $0
+                    savePrompts() // 编辑内容后保存
+                }
             ))
             .frame(height: 80)
             .padding(6)
@@ -161,15 +175,6 @@ struct SettingsView: View {
         }
     }
 
-    private func presetPromptRowView(index: Int) -> some View {
-        SettingItem {
-            if editingPromptIndex == index {
-                editingPresetPromptRowView(index: index)
-            } else {
-                displayPresetPromptRowView(prompt: presetPrompts[index], index: index)
-            }
-        }
-    }
 
     private var addPresetPromptButton: some View {
         SettingItem {
@@ -269,24 +274,38 @@ struct SettingsView: View {
     private var presetPromptsSection: some View {
         SettingGroupBox(title: "AI对话预设提示词") {
             VStack(spacing: 0) {
-                ForEach(presetPrompts.indices, id: \.self) { idx in
-                    presetPromptRowView(index: idx)
+                List {
+                    ForEach(Array(presetPrompts.enumerated()), id: \.element.id) { idx, prompt in
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "line.3.horizontal")
+                                .foregroundColor(.gray)
+                                .opacity(0.7)
+                                .padding(.top, 6)
+                            displayPresetPromptRowView(prompt: prompt, index: idx)
+                        }
+                    }
+                    .onMove { indices, newOffset in
+                        presetPrompts.move(fromOffsets: indices, toOffset: newOffset)
+                        savePrompts()
+                    }
                 }
+                .environment(\.editMode, .constant(.active))
+                .listStyle(PlainListStyle())
+                .frame(height: 400)
+                
                 if showingNewPromptInput {
                     newPromptInputView
                 } else {
                     addPresetPromptButton
                 }
-                // 【新增】底部按钮容器，用于恢复默认和保存
                 HStack(spacing: 20) {
-                    Spacer() // 左对齐
+                    Spacer()
                     restorePresetPromptsButton
-                    savePresetPromptsButton // 直接调用保存按钮视图
-                    Spacer() // 右对齐
+                    savePresetPromptsButton
+                    Spacer()
                 }
-                .frame(maxWidth: .infinity, alignment: .center) // 确保 Hstack 占据全宽并内容居中
-                .padding(.top, 15) // 与上面内容的间距
-                .padding(.bottom, 5) // 底部间距
+                .padding(.top, 15)
+                .padding(.bottom, 5)
             }
         }
         .navigationTitle("设置")
@@ -319,6 +338,23 @@ struct SettingsView: View {
             // Set default batch summary prompt if it's empty
             if batchSummaryPrompt.isEmpty {
                 batchSummaryPrompt = Prompt.DEFAULT_BATCH_SUMMARY_PROMPT
+            }
+        }
+        // 【新增】删除确认对话框
+        .alert("确认删除", isPresented: $showingDeleteAlert) {
+            Button("取消", role: .cancel) {
+                promptToDelete = nil
+            }
+            Button("删除", role: .destructive) {
+                if let index = promptToDelete?.index {
+                    deletePrompt(at: index)
+                    savePrompts()
+                }
+                promptToDelete = nil
+            }
+        } message: {
+            if let title = promptToDelete?.title {
+                Text("确定要删除提示词「\(title)」吗？此操作无法撤销。")
             }
         }
     }
@@ -356,6 +392,8 @@ struct SettingsView: View {
     private func saveNewPrompt() {
         let newPrompt = Prompt(title: tempNewPromptTitle, content: tempNewPromptContent)
         presetPrompts.append(newPrompt)
+        // 保存到 UserDefaults
+        savePrompts()
         showingNewPromptInput = false
         tempNewPromptTitle = ""
         tempNewPromptContent = ""
@@ -405,5 +443,32 @@ struct SettingItem<Content: View>: View {
 struct SettingsView_Previews: PreviewProvider {
     static var previews: some View {
         SettingsView()
+    }
+}
+
+// 【新增】拖拽代理
+struct DropViewDelegate: DropDelegate {
+    let items: Binding<[Prompt]>
+    let current: Int
+    
+    func performDrop(info: DropInfo) -> Bool {
+        return true
+    }
+    
+    func dropEntered(info: DropInfo) {
+        // 获取拖拽源和目标位置
+        guard let fromIndex = Int(info.itemProviders(for: [.text]).first?.suggestedName ?? "") else { return }
+        
+        // 如果源位置和目标位置不同，则交换位置
+        if fromIndex != current {
+            withAnimation {
+                let item = items.wrappedValue.remove(at: fromIndex)
+                items.wrappedValue.insert(item, at: current)
+            }
+        }
+    }
+    
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        return DropProposal(operation: .move)
     }
 } 
