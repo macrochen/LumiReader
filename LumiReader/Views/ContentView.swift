@@ -8,12 +8,15 @@
 import SwiftUI
 import CoreData
 
-enum TabType {
-    case source, summary, aiChat, settings
+enum TabType: Int {
+    case source = 0
+    case summary = 1
+    case aiChat = 2
+    case settings = 3
 }
 
 struct ContentView: View {
-    @State private var selectedTabIndex: Int = 0
+    // MARK: - 修改：使用 TabType 作为主要状态，它与 TabView 的 selection 绑定
     @State private var selectedTab: TabType = .source
     @State private var selectedArticleForChat: Article? = nil
     @State private var aiChatButtonOffset: CGSize = .zero
@@ -22,11 +25,16 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             // 内容区：可左右滑动
-            TabView(selection: $selectedTabIndex) {
-                SourceView(selectedTab: $selectedTab, selectedArticleForChat: $selectedArticleForChat).tag(0)
-                SummaryView(selectedTab: $selectedTab, selectedArticleForChat: $selectedArticleForChat).tag(1)
-                AIChatView(article: $selectedArticleForChat, selectedTab: $selectedTab, previousTabType: nil, dragOffset: $aiChatButtonOffset).tag(2)
-                SettingsView().tag(3)
+            // MARK: - 修改：直接将 TabView 的 selection 绑定到 $selectedTab
+            TabView(selection: $selectedTab) {
+                SourceView(selectedTab: $selectedTab, selectedArticleForChat: $selectedArticleForChat)
+                    .tag(TabType.source)
+                SummaryView(selectedTab: $selectedTab, selectedArticleForChat: $selectedArticleForChat)
+                    .tag(TabType.summary)
+                AIChatView(article: $selectedArticleForChat, selectedTab: $selectedTab, previousTabType: nil, dragOffset: $aiChatButtonOffset)
+                    .tag(TabType.aiChat)
+                SettingsView()
+                    .tag(TabType.settings)
             }
             .tabViewStyle(PageTabViewStyle(indexDisplayMode: .never))
 
@@ -34,14 +42,15 @@ struct ContentView: View {
 
             // 底部自定义TabBar
             HStack {
-                ForEach(tabTitles.indices, id: \.self) { idx in
-                    Button(action: { selectedTabIndex = idx }) {
-                        Text(tabTitles[idx])
-                            .fontWeight(selectedTabIndex == idx ? .bold : .regular)
-                            .foregroundColor(selectedTabIndex == idx ? .blue : .primary)
+                // MARK: - 修改：根据 TabType 来创建按钮和设置动作
+                ForEach(Array(zip(tabTitles, [TabType.source, .summary, .aiChat, .settings])), id: \.0) { title, tab in
+                    Button(action: { selectedTab = tab }) {
+                        Text(title)
+                            .fontWeight(selectedTab == tab ? .bold : .regular)
+                            .foregroundColor(selectedTab == tab ? .blue : .primary)
                             .padding(.vertical, 8)
                             .padding(.horizontal, 16)
-                            .background(selectedTabIndex == idx ? Color(.systemGray5) : Color.clear)
+                            .background(selectedTab == tab ? Color(.systemGray5) : Color.clear)
                             .cornerRadius(8)
                     }
                 }

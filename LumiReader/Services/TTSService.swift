@@ -5,7 +5,7 @@ import Combine
 class TTSService: NSObject, ObservableObject {
     static let shared = TTSService()
     
-    private let synthesizer = AVSpeechSynthesizer() // 保持 private
+    private let synthesizer = AVSpeechSynthesizer()
     
     @Published var isPlaying = false
     @Published var isPaused = false
@@ -19,8 +19,8 @@ class TTSService: NSObject, ObservableObject {
     private var sentencesWithRanges: [(text: String, originalRange: NSRange)] = []
 
     private var currentText: String = ""
-    private var currentPosition: Int = 0
-    private var currentTextOffset: Int = 0
+    private var currentPosition: Int = 0 // Represents the current character index in the full text
+    private var currentTextOffset: Int = 0 // Represents the starting offset of the current utterance string within the full text
     
     private let voiceIdentifier = "com.apple.ttsbundle.Mei-Jia-compact"
     private var selectedVoice: AVSpeechSynthesisVoice?
@@ -53,17 +53,17 @@ class TTSService: NSObject, ObservableObject {
     // MARK: - Public Methods
     
     func speak(_ text: String) {
-        // 判断是否是新的播放任务或者从完全停止状态开始
+        // Determine if this is a new playback session (different text or starting from scratch)
         let isStartingNewFromStopped = self.currentText != text || (!isPlaying && !isPaused && currentPosition == 0 && totalCharacters == 0)
 
         if isStartingNewFromStopped {
-            // 在开始新的朗读前，确保完全停止当前所有任务
-            stop() // 调用内部的 stop() 方法来清理状态和停止合成器
-
+            // In case of a new start, ensure everything is stopped and reset
+            stop() // This will also handle synthesizer.stopSpeaking() and reset published states
+            
             self.currentText = text
             self.currentPosition = 0
             self.currentTextOffset = 0
-            self.isPaused = false // 确保不是暂停状态，而是从头开始
+            self.isPaused = false
             
             // Segment sentences for highlighting
             self.sentencesWithRanges = []
@@ -73,7 +73,7 @@ class TTSService: NSObject, ObservableObject {
                 }
             }
             
-            // Reset progress and highlighting states
+            // Reset progress and highlighting states (already done by stop(), but for clarity/initial setup)
             self.totalCharacters = text.utf16.count
             self.spokenCharacters = 0
             self.updatePlaybackProgress()
@@ -115,10 +115,8 @@ class TTSService: NSObject, ObservableObject {
             let nsCurrentText = currentText as NSString
             guard currentPosition < nsCurrentText.length else {
                 // If we've reached the end, implicitly act as if it finished
-                // 确保在 resume() 之后能够正确地处理“结束”状态
-                DispatchQueue.main.async {
-                    self.speechSynthesizer(self.synthesizer, didFinish: AVSpeechUtterance(string: "")) // Trigger finish state manually
-                }
+                // Make sure to reset states as if finished
+                stop() // Use stop() to reset all states cleanly
                 return
             }
             let remainingText = nsCurrentText.substring(from: currentPosition)
@@ -133,25 +131,26 @@ class TTSService: NSObject, ObservableObject {
         }
     }
     
-    // MARK: - Re-adding stop() method, now public/internal for external control/cleanup
+    // MARK: - stop() method to cleanly stop and reset all states
     func stop() {
-        // 1. 立即停止语音合成器
+        // 1. Immediately stop speech on the synthesizer
         if synthesizer.isSpeaking || synthesizer.isPaused {
             synthesizer.stopSpeaking(at: .immediate)
             print("[TTSService] Synthesizer stopped immediately by stop() call.")
         }
         
-        // 2. 在主线程立即重置所有 @Published 状态，以更新 UI
+        // 2. Immediately reset all @Published states on the main thread for UI update
         DispatchQueue.main.async {
             self.isPlaying = false
             self.isPaused = false
             self.spokenCharacters = 0
-            self.currentPosition = 0
-            self.currentTextOffset = 0
-            self.playbackProgress = 0.0 // 进度条归零
-            self.currentSpeakingSentenceIndex = nil // 清除高亮
+            self.currentPosition = 0 // Reset internal playback position
+            self.currentTextOffset = 0 // Reset internal text offset
+            self.playbackProgress = 0.0 // Reset progress bar
+            self.currentSpeakingSentenceIndex = nil // Clear highlighting
             print("[TTSService] All UI-related states reset to stopped.")
         }
+        // didCancel delegate method will also be called, but states are already reset here.
     }
     
     func togglePlayPause() {
@@ -160,8 +159,8 @@ class TTSService: NSObject, ObservableObject {
         } else if isPaused { // If currently paused, resume
             resume()
         } else {
-            // This case (neither playing nor paused) implies a stopped state.
-            // The UI will handle calling speak() from the beginning when this occurs.
+            // This state (neither playing nor paused) implies stopped.
+            // The UI should handle calling speak() from the beginning when this occurs.
             print("[TTSService] togglePlayPause called in stopped state. UI should initiate speak().")
         }
     }
@@ -180,10 +179,8 @@ class TTSService: NSObject, ObservableObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                 let nsCurrentText = self.currentText as NSString
                 guard self.currentPosition < nsCurrentText.length else {
-                    // If we were at the end, just finish
-                    DispatchQueue.main.async {
-                        self.speechSynthesizer(self.synthesizer, didFinish: AVSpeechUtterance(string: "")) // Trigger finish state manually
-                    }
+                    // If we were at the end, just finish and reset states
+                    self.stop() // Use stop() to reset all states cleanly
                     return
                 }
                 let textToContinueFrom = nsCurrentText.substring(from: self.currentPosition)
@@ -191,9 +188,7 @@ class TTSService: NSObject, ObservableObject {
                 if !textToContinueFrom.isEmpty {
                     self.startSpeakingInternal(from: textToContinueFrom)
                 } else if self.currentPosition >= nsCurrentText.length {
-                    DispatchQueue.main.async {
-                        self.speechSynthesizer(self.synthesizer, didFinish: AVSpeechUtterance(string: ""))
-                    }
+                    self.stop() // Use stop() to reset all states cleanly
                 }
             }
         }
@@ -244,12 +239,8 @@ extension TTSService: AVSpeechSynthesizerDelegate {
         DispatchQueue.main.async {
             // Only reset if the entire text has finished
             if self.spokenCharacters >= self.totalCharacters {
-                 self.isPlaying = false
-                 self.isPaused = false
-                 self.spokenCharacters = self.totalCharacters
-                 self.updatePlaybackProgress()
-                 self.currentSpeakingSentenceIndex = nil
-                 print("[TTSService] Delegate didFinish speaking (full text). All states reset to stopped.")
+                self.stop() // Use stop() to ensure all states are reset to "stopped"
+                print("[TTSService] Delegate didFinish speaking (full text). All states reset by stop().")
             } else {
                 print("[TTSService] Delegate didFinish speaking (partial utterance, or already stopped).")
             }
@@ -273,19 +264,10 @@ extension TTSService: AVSpeechSynthesizerDelegate {
     }
     
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
-        // When `stop()` is called from outside, it first updates states, then cancels.
-        // This delegate method ensures states are always reset if a cancellation happens,
-        // especially if not explicitly triggered by our `stop()` method.
-        DispatchQueue.main.async {
-            self.isPlaying = false
-            self.isPaused = false
-            self.spokenCharacters = 0
-            self.currentPosition = 0
-            self.currentTextOffset = 0
-            self.playbackProgress = 0.0
-            self.currentSpeakingSentenceIndex = nil
-            print("[TTSService] Delegate didCancel speaking. All states reset to stopped.")
-        }
+        // This delegate method is also triggered when `stop()` is called.
+        // Calling stop() here ensures all states are reset, regardless of how cancellation occurred.
+        stop() // Use stop() to ensure all states are reset
+        print("[TTSService] Delegate didCancel speaking. States reset by stop().")
     }
     
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, willSpeakRangeOfSpeechString characterRange: NSRange, utterance: AVSpeechUtterance) {
