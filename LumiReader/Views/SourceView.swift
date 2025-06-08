@@ -9,7 +9,7 @@ struct ImportedArticle: Codable {
     let textContent: String
 }
 
-struct ArticleListView: View {
+struct SourceView: View {
     @Environment(\.managedObjectContext) private var viewContext
     @FetchRequest(
         sortDescriptors: [NSSortDescriptor(keyPath: \Article.importDate, ascending: false)],
@@ -54,7 +54,7 @@ struct ArticleListView: View {
     // Computed property for the title bar
     private var titleBar: some View {
         HStack {
-            Text("来源列表")
+            Text("")
                 .font(.system(size: 22, weight: .semibold))
                 .foregroundColor(Color(.label))
             Spacer()
@@ -117,6 +117,13 @@ struct ArticleListView: View {
             }
             .disabled(selectedArticles.isEmpty) // Original code had this button disabled with selectedArticles.isEmpty || isSummarizing. Check if isSummarizing is also needed here. For now, matching original.
         }
+        .background(
+            LinearGradient(
+                gradient: Gradient(colors: [Color(red: 0.90, green: 0.95, blue: 1.0), Color(red: 0.85, green: 0.91, blue: 1.0)]),
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
     }
 
     // Computed property for the article list content
@@ -250,27 +257,50 @@ struct ArticleListView: View {
 
     // MARK: - Body
     var body: some View {
-        screenWithPrimaryBackground // Main content with its own gradient
-            .overlay { summarizingOverlayView } // Conditional overlay
-            .background(finalBackgroundView) // Final, overall background
-            .navigationTitle("文章列表")
-            .navigationBarTitleDisplayMode(.inline)
-            .alert("错误", isPresented: $showingError, presenting: errorMessage) { _ in
-                Button("确定", role: .cancel) {}
-            } message: { messageText in // Renamed for clarity
-                Text(messageText)
+        ZStack {
+            // 背景
+            LinearGradient(gradient: Gradient(colors: [Color(red: 0.90, green: 0.95, blue: 1.0), Color(red: 0.85, green: 0.91, blue: 1.0)]), startPoint: .topLeading, endPoint: .bottomTrailing)
+                .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                // 顶部标题和统计
+                titleBar
+                statisticsView
+
+                // 文章列表
+                articleListContent
+
+                Spacer(minLength: 0)
+
+                // 底部操作栏（已移到最底部）
+                operationToolbarView
+                    .padding(.horizontal, 20)
+                    .padding(.top, 8)
+                    .padding(.bottom, 8)
+                    .shadow(color: Color.black.opacity(0.04), radius: 2, x: 0, y: -2)
             }
-            .alert("导入成功", isPresented: $showingImportSuccess) {
-                Button("确定", role: .cancel) {}
-            } message: {
-                Text("成功导入 \(importedCount) 篇文章。")
-            }
-            .fileImporter(
-                isPresented: $isImportingLocalFile,
-                allowedContentTypes: [.json],
-                allowsMultipleSelection: false,
-                onCompletion: handleFileImportResult
-            )
+        }
+        // 其它 overlay、alert、fileImporter 保持不变
+        .overlay { summarizingOverlayView }
+        .background(finalBackgroundView)
+        .navigationTitle("文章列表")
+        .navigationBarTitleDisplayMode(.inline)
+        .alert("错误", isPresented: $showingError, presenting: errorMessage) { _ in
+            Button("确定", role: .cancel) {}
+        } message: { messageText in
+            Text(messageText)
+        }
+        .alert("导入成功", isPresented: $showingImportSuccess) {
+            Button("确定", role: .cancel) {}
+        } message: {
+            Text("成功导入 \(importedCount) 篇文章。")
+        }
+        .fileImporter(
+            isPresented: $isImportingLocalFile,
+            allowedContentTypes: [.json],
+            allowsMultipleSelection: false,
+            onCompletion: handleFileImportResult
+        )
     }
 
     // MARK: - Action Methods
@@ -605,13 +635,13 @@ struct ArticleListView_Previews: PreviewProvider {
         article2.content = "这是示例文章 2 的内容"
         article2.importDate = Date().addingTimeInterval(-100)
         
-        return ArticleListView(selectedTab: .constant(.articleList), selectedArticleForChat: .constant(nil))
+        return SourceView(selectedTab: .constant(.source), selectedArticleForChat: .constant(nil))
             .environment(\.managedObjectContext, context)
     }
 }
 
 // Placeholder for TabType if it's not defined in this file
-// enum TabType { case articleList, summary /* other cases */ }
+// enum TabType { case source, summary /* other cases */ }
 
 // 添加统计卡片组件
 struct StatCard: View {

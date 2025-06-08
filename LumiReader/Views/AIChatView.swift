@@ -380,7 +380,7 @@ struct AIChatView: View {
                         // 切换回前一个 Tab
                         selectedTab = previousTab
                     }) {
-                        Image(systemName: previousTab == .articleList ? "list.bullet.rectangle.fill" : "text.magnifyingglass")
+                        Image(systemName: previousTab == .source ? "list.bullet.rectangle.fill" : "text.magnifyingglass")
                             .font(.system(size: 20))
                             .padding(10)
                             .background(Color.blue)
@@ -941,11 +941,11 @@ struct AIChatView_Previews: PreviewProvider {
         // This might require a temporary init or a way to inject state for preview
         
         return Group {
-            AIChatView(article: .constant(article), selectedTab: .constant(.articleList), previousTabType: nil, dragOffset: .constant(.zero))
+            AIChatView(article: .constant(article), selectedTab: .constant(.source), previousTabType: nil, dragOffset: .constant(.zero))
                 .environment(\.managedObjectContext, context)
                 .previewDisplayName("With Article")
             
-            AIChatView(article: .constant(nil), selectedTab: .constant(.articleList), previousTabType: nil, dragOffset: .constant(.zero))
+            AIChatView(article: .constant(nil), selectedTab: .constant(.source), previousTabType: nil, dragOffset: .constant(.zero))
                 .environment(\.managedObjectContext, context)
                 .previewDisplayName("No Article (Picker)")
         }

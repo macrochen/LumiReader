@@ -15,7 +15,7 @@ struct SettingsView: View {
     @AppStorage("batchSummaryPrompt") private var batchSummaryPrompt: String = ""
     @AppStorage("presetPromptsData") private var presetPromptsData: Data = Data()
     @State private var presetPrompts: [Prompt] = []
-    @State private var editingPromptIndex: Int? = nil
+    @State private var editingPromptId: UUID? = nil
     @State private var showingNewPromptInput = false
     @State private var tempNewPromptTitle: String = ""
     @State private var tempNewPromptContent: String = ""
@@ -77,30 +77,42 @@ struct SettingsView: View {
     }
 
     private func displayPresetPromptRowView(prompt: Prompt, index: Int) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
+        ZStack(alignment: .trailing) {
+            // 内容区域
+            VStack(alignment: .leading, spacing: 4) {
                 Text(prompt.title)
                     .font(.system(size: 15, weight: .medium))
-                Spacer()
-                HStack(spacing: 2) {
-                    Button(action: { editingPromptIndex = index }) {
-                        Image(systemName: "pencil")
-                            .foregroundColor(.blue)
-                    }
-                    Button(action: { 
-                        promptToDelete = (index, prompt.title)
-                        showingDeleteAlert = true
-                    }) {
-                        Image(systemName: "trash")
-                            .foregroundColor(.red)
-                    }
-                }
+                Text(prompt.content)
+                    .font(.system(size: 13))
+                    .foregroundColor(.gray)
+                    .lineLimit(2)
             }
-            Text(prompt.content)
-                .font(.system(size: 13))
-                .foregroundColor(.gray)
-                .lineLimit(2)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .allowsHitTesting(false)
+            
+            // 按钮区域
+            HStack(spacing: 8) {
+                Button(action: { editingPromptId = prompt.id }) {
+                    Image(systemName: "pencil")
+                        .foregroundColor(.blue)
+                        .frame(width: 24, height: 24)
+                }
+                .buttonStyle(PlainButtonStyle())
+                
+                Button(action: { 
+                    promptToDelete = (index, prompt.title)
+                    showingDeleteAlert = true
+                }) {
+                    Image(systemName: "trash")
+                        .foregroundColor(.red)
+                        .frame(width: 24, height: 24)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            .padding(.leading, 8)
         }
+        .padding(.vertical, 4)
     }
 
     private func editingPresetPromptRowView(index: Int) -> some View {
@@ -119,8 +131,8 @@ struct SettingsView: View {
                 .cornerRadius(6)
                 .font(.system(size: 15))
                 Button(action: {
-                    editingPromptIndex = nil
-                    savePrompts() // 完成编辑后保存
+                    editingPromptId = nil
+                    savePrompts()
                 }) {
                     Image(systemName: "checkmark")
                         .foregroundColor(.blue)
@@ -276,11 +288,9 @@ struct SettingsView: View {
             VStack(spacing: 0) {
                 List {
                     ForEach(Array(presetPrompts.enumerated()), id: \.element.id) { idx, prompt in
-                        HStack(alignment: .top, spacing: 8) {
-                            Image(systemName: "line.3.horizontal")
-                                .foregroundColor(.gray)
-                                .opacity(0.7)
-                                .padding(.top, 6)
+                        if editingPromptId == prompt.id {
+                            editingPresetPromptRowView(index: idx)
+                        } else {
                             displayPresetPromptRowView(prompt: prompt, index: idx)
                         }
                     }
@@ -292,6 +302,7 @@ struct SettingsView: View {
                 .environment(\.editMode, .constant(.active))
                 .listStyle(PlainListStyle())
                 .frame(height: 400)
+                .background(Color.clear)
                 
                 if showingNewPromptInput {
                     newPromptInputView
