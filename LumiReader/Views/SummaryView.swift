@@ -130,6 +130,8 @@ struct SummaryView: View {
         // .padding(.vertical, 8) // 这个可以根据整体布局调整
     }
 
+    @State private var needsReload = false
+
     var body: some View {
         ZStack {
             LinearGradient(gradient: Gradient(colors: [Color(red: 0.92, green: 0.96, blue: 1.0), Color(red: 0.88, green: 0.93, blue: 1.0)]), startPoint: .topLeading, endPoint: .bottomTrailing)
@@ -167,8 +169,9 @@ struct SummaryView: View {
                                         }
                                         self.selectedTab = .aiChat
                                     })
-                                    .frame(minHeight: markdownViewHeight) // 使用 minHeight 以允许内容扩展
-                                    .padding(.top, 8) // Markdown 视图和控制面板之间的间距
+                                    .id(needsReload)
+                                    .frame(minHeight: markdownViewHeight)
+                                    .padding(.top, 8)
                             } else {
                                 Text("总结内容为空。")
                                     .font(.callout)
@@ -194,6 +197,9 @@ struct SummaryView: View {
             // if ttsService.isPlaying || ttsService.isPaused {
             //     ttsService.stop()
             // }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+            needsReload.toggle()
         }
     }
 }
