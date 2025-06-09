@@ -350,7 +350,19 @@ struct SourceView: View {
         isSummarizing = true
 
         let apiKey = UserDefaults.standard.string(forKey: "geminiApiKey") ?? ""
-        let summaryPrompt = UserDefaults.standard.string(forKey: "batchSummaryPrompt") ?? Prompt.DEFAULT_BATCH_SUMMARY_PROMPT // Assuming Prompt struct exists
+        // let summaryPrompt = UserDefaults.standard.string(forKey: "batchSummaryPrompt") ?? Prompt.DEFAULT_BATCH_SUMMARY_PROMPT_NORMAL // Assuming Prompt struct exists
+        
+        // 在 SourceView.swift 的 summarizeSelectedArticles 函数中...
+
+        // 1. 先从 UserDefaults 中读取用户当前选择的是哪个方案（标准版还是语音版）
+        let schemeRawValue = UserDefaults.standard.string(forKey: "selectedBatchScheme") ?? BatchPromptScheme.normal.rawValue
+        let selectedScheme = BatchPromptScheme(rawValue: schemeRawValue) ?? .normal
+
+        // 2. 根据读出来的方案，拼接出正确的、带后缀的键
+        let promptKey = "batchSummaryPrompt_\(selectedScheme.rawValue)" 
+
+        // 3. 使用这个正确的键来获取对应的提示词
+        let summaryPrompt = UserDefaults.standard.string(forKey: promptKey) ?? Prompt.defaultBatchSummary(for: selectedScheme)
 
         guard !apiKey.isEmpty else {
             self.errorMessage = "请先在设置中填写 Gemini API Key"
