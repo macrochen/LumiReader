@@ -87,35 +87,39 @@ struct GeminiService {
             throw GeminiServiceError.invalidAPIKey
         }
         
-        // Construct contents array using Encodable structs
+        // 1. 构建内容数组
         var contents: [Content] = []
         
-        // Add chat history
-        for message in history.dropLast() {
+        // 2. 添加历史对话 (如果 history 数组不为空)
+        // 这个 for 循环天然支持空数组，无需额外判断
+        for message in history { // 注意：移除了 .dropLast() 以包含所有历史
             let role = message.sender == .user ? "user" : "model"
             contents.append(
-                Content(
-                    role: role,
-                    parts: [
-                        Part(text: message.content)
-                    ]
-                )
+                Content(role: role, parts: [Part(text: message.content)])
             )
         }
         
-        // Add the new user message including article context and prompts
-        let userMessageText = "基于以下文章内容回复我的问题，请用中文。文章内容：\n\n\(articleContent)\n\n我的问题：\n\(newMessage)"
+        // 3. 构建包含文章和新问题的用户消息
+        // 为了让提示词更清晰，我们可以根据历史是否存在，稍微调整文本
+        let historyPreamble = history.isEmpty ? "你是一个文章问答助手。" : "请结合之前的对话，"
+
+        let userMessageText = """
+        \(historyPreamble)现在基于以下文章内容，用中文来回答我的问题。
+
+        ---
+        文章内容:
+        \(articleContent)
+        ---
+
+        我的问题:
+        \(newMessage)
+        """
         
         contents.append(
-            Content(
-                role: "user",
-                parts: [
-                    Part(text: userMessageText)
-                ]
-            )
+            Content(role: "user", parts: [Part(text: userMessageText)])
         )
         
-        // Construct the request body struct
+        // 4. 构建请求体
         let requestBody = ChatCompletionRequestBody(
             contents: contents,
             generationConfig: GenerationConfig(

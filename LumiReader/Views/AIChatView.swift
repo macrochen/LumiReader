@@ -176,6 +176,9 @@ struct AIChatView: View {
     @Binding var selectedTab: TabType
     let previousTabType: TabType?
     
+    // 【新增】用于控制是否发送历史对话的状态变量
+    @State private var includeHistory: Bool = false
+    
     @FetchRequest(
         sortDescriptors: [NSSortDescriptor(keyPath: \Article.importDate, ascending: false)],
         animation: .default)
@@ -516,15 +519,16 @@ struct AIChatView: View {
         let aiMessageId = UUID()
         streamingMessageId = aiMessageId
         streamingContent = ""
+
         // 使用一个临时的 AttributedString，例如显示一个光标
         // 这里的占位符消息暂时添加到 messages，如果失败会移除
         let placeholderAttributedContent = convertToMarkdownAttributedString("▌")
         let placeholderAIMessage = ChatMessage(id: aiMessageId, sender: .gemini, content: "")
         // messages.append(ChatMessageItem(message: placeholderAIMessage, attributedContent: placeholderAttributedContent, timestamp: MessageTimestamp())) // 暂时不添加到 messages 数组，处理流式时再添加
 
-        // 【修改】使用流式 API
-        // API History 现在是 messages 数组的全部内容，因为最新的用户消息还没有加进去
-        let apiHistory = messages.map { $0.message }
+
+        // 【核心修改】根据 includeHistory 的状态决定要发送的历史记录
+        let apiHistory = includeHistory ? messages.map { $0.message } : []
 
         Task {
             do {
@@ -628,7 +632,7 @@ struct AIChatView: View {
     // 【新增】复制文章信息和AI回复内容
     private func copyArticleAndResponse(attributedContent: AttributedString, articleTitle: String?, articleLink: String?) {
         var combinedContent = ""
-        combinedContent += "\(articleTitle ?? "无标题")"
+        combinedContent += "《\(articleTitle ?? "无标题")》\n"
         if let link = articleLink, !link.isEmpty {
             combinedContent += "\(link)\n"
         }
@@ -1030,6 +1034,7 @@ extension AIChatView {
         VStack(spacing: 0) { // Wrap in VStack to allow for potential elements above TextEditor
             Divider() // Visual separation
             HStack(alignment: .bottom, spacing: 10) {
+
                 TextEditor(text: $inputText)
                     .frame(minHeight: inputHeight, maxHeight: 120) // Use calculated inputHeight
                     .padding(.horizontal, 8) // Internal padding for TextEditor text
@@ -1061,17 +1066,32 @@ extension AIChatView {
                          }
                      }
 
-                Button(action: sendMessage) {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 32, height: 32)
-                        .foregroundColor(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .gray : .blue)
+                    // 【修改】将按钮们放到右侧的 VStack 中
+                    VStack(spacing: 8) {
+                        // 控制历史对话的开关按钮
+                        Button(action: {
+                            includeHistory.toggle() // 点击切换状态
+                        }) {
+                            // 根据状态显示不同图标和颜色
+                            Image(systemName: includeHistory ? "bubble.left.and.bubble.right.fill" : "bubble.left.and.bubble.right")
+                                .font(.system(size: 24))
+                                .foregroundColor(includeHistory ? .blue : .secondary)
+                        }
+                        .buttonStyle(.plain) // 使用无背景样式
+
+                        // 发送按钮
+                        Button(action: sendMessage) {
+                            Image(systemName: "arrow.up.circle.fill")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 32, height: 32)
+                                .foregroundColor(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .gray : .blue)
+                        }
+                        .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSending)
+                    }
                 }
-                .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSending)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
         }
     }
     
