@@ -1,7 +1,8 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import CoreData
-import SafariServices // Import SafariServices for opening links
+import SafariServices
+
 
 struct ImportedArticle: Codable {
     let title: String
@@ -11,10 +12,15 @@ struct ImportedArticle: Codable {
 
 struct SourceView: View {
     @Environment(\.managedObjectContext) private var viewContext
+    
+    // 使用新的 ViewModel 来管理文章数据
+    @StateObject private var viewModel: SourceViewModel
+
+    // 这个 FetchRequest 仍然可以保留，用于统计总数
     @FetchRequest(
         sortDescriptors: [NSSortDescriptor(keyPath: \Article.importDate, ascending: false)],
         animation: .default)
-    private var articles: FetchedResults<Article>
+    private var allArticles: FetchedResults<Article>
 
     @FetchRequest(
         sortDescriptors: [NSSortDescriptor(keyPath: \Article.importDate, ascending: false)],
@@ -26,40 +32,40 @@ struct SourceView: View {
     @Binding var selectedArticleForChat: Article?
 
     @State private var selectedArticles: Set<ObjectIdentifier> = []
-    // @State private var showingBatchSummary = false // This state seems unused, consider removing if not needed
     @State private var errorMessage: String?
     @State private var showingError = false
-
     @State private var showingImportSuccess = false
     @State private var importedCount = 0
-
-    @State private var showingImportOptions = false
     @State private var isImportingLocalFile = false
 
-    // 添加统计相关的状态
     @State private var totalDeletedCount: Int = UserDefaults.standard.integer(forKey: "totalDeletedCount")
     @State private var todayDeletedCount: Int = UserDefaults.standard.integer(forKey: "todayDeletedCount")
     @State private var lastResetDate: Date = UserDefaults.standard.object(forKey: "lastResetDate") as? Date ?? Date()
 
-    @State private var importError: String? // Replaces errorMessage for import-specific errors for clarity
+    @State private var importError: String?
     @State private var isSummarizing = false
-    // @State private var latestSummary: BatchSummary? // This state seems unused after refactor of summarizeSelectedArticles
+    
     @FetchRequest(
         sortDescriptors: [NSSortDescriptor(keyPath: \BatchSummary.timestamp, ascending: false)],
         animation: .default)
     private var batchSummaries: FetchedResults<BatchSummary>
+    
+    init(selectedTab: Binding<TabType>, selectedArticleForChat: Binding<Article?>) {
+        _selectedTab = selectedTab
+        _selectedArticleForChat = selectedArticleForChat
+        let context = PersistenceController.shared.container.viewContext
+        _viewModel = StateObject(wrappedValue: SourceViewModel(context: context))
+    }
 
-    // MARK: - Computed View Properties for Refactoring
+    // MARK: - UI Views (恢复到你最初的版本)
 
-    // Computed property for the title bar
     private var titleBar: some View {
         HStack {
             Text("")
                 .font(.system(size: 22, weight: .semibold))
-                .foregroundColor(Color(.label))
             Spacer()
             Button(action: {
-                isImportingLocalFile = true // Directly trigger file import
+                isImportingLocalFile = true
             }) {
                 Image(systemName: "square.and.arrow.down")
                     .font(.system(size: 24, weight: .medium))
@@ -71,11 +77,8 @@ struct SourceView: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 6)
-        .navigationTitle("设置")
-        .navigationBarTitleDisplayMode(.inline)
     }
 
-    // Computed property for the operation toolbar
     private var operationToolbarView: some View {
         HStack(spacing: 12) {
             Button(action: selectAllArticles) {
@@ -105,7 +108,7 @@ struct SourceView: View {
                     .background(LinearGradient(gradient: Gradient(colors: [Color.blue, Color.pink]), startPoint: .leading, endPoint: .trailing))
                     .cornerRadius(10)
             }
-            .disabled(selectedArticles.isEmpty || isSummarizing) // Keep original disable logic
+            .disabled(selectedArticles.isEmpty || isSummarizing)
             Button(action: confirmDelete) {
                 Text("删除选中")
                     .font(.system(size: 14, weight: .medium))
@@ -115,7 +118,7 @@ struct SourceView: View {
                     .background(Color.red)
                     .cornerRadius(10)
             }
-            .disabled(selectedArticles.isEmpty) // Original code had this button disabled with selectedArticles.isEmpty || isSummarizing. Check if isSummarizing is also needed here. For now, matching original.
+            .disabled(selectedArticles.isEmpty)
         }
         .background(
             LinearGradient(
@@ -126,17 +129,21 @@ struct SourceView: View {
         )
     }
 
-    // Computed property for the article list content
     private var articleListContent: some View {
         ScrollView {
+            GeometryReader { geometry in
+                Color.clear.preference(key: ScrollOffsetPreferenceKey.self, value: geometry.frame(in: .named("scrollView")).minY)
+            }
+            .frame(height: 0)
+
             VStack(spacing: 2) {
-                if articles.isEmpty {
+                if viewModel.articles.isEmpty && !viewModel.isLoadingPage {
                     Text("暂无文章，请点击右上角按钮导入")
                         .foregroundColor(.gray)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.top, 40)
                 } else {
-                    ForEach(Array(articles.enumerated()), id: \.element.objectID) { index, article in
+                    ForEach(Array(viewModel.articles.enumerated()), id: \.element.objectID) { index, article in
                         ArticleCard(
                             article: article,
                             isSelected: selectedArticles.contains(ObjectIdentifier(article)),
@@ -147,132 +154,80 @@ struct SourceView: View {
                                 self.selectedTab = .aiChat
                             }
                         )
-                        // Apply alternating background
                         .background(index % 2 == 0 ? Color(.systemGray5) : Color(.systemGray4))
-                        .cornerRadius(14) // Match the corner radius of the card
+                        .cornerRadius(14)
+                    }
+                    
+                    if viewModel.canLoadMorePages {
+                        if viewModel.isLoadingPage {
+                            ProgressView()
+                                .padding()
+                        } else {
+                            Color.clear
+                                .frame(height: 1)
+                                .onAppear {
+                                    viewModel.fetchArticles()
+                                }
+                        }
                     }
                 }
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 8)
         }
-        .background(Color.clear) // Ensure ScrollView itself doesn't have an opaque background if not desired
+        .coordinateSpace(name: "scrollView")
+        .background(Color.clear)
         .frame(maxHeight: .infinity)
-    }
-
-    // Container for the main VStack content (title, toolbar, list)
-    private var mainContentContainer: some View {
-        VStack(spacing: 0) {
-            titleBar
-            
-            statisticsView  // 添加统计视图
-            
-            operationToolbarView
-                .padding(.horizontal, 20)
-                .padding(.vertical, 8)
-
-            articleListContent
+        .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
+             if value > 60 {
+                 viewModel.refreshData()
+             }
         }
     }
     
-    // The main screen content, including the primary background gradient and the mainContentContainer
-    private var screenWithPrimaryBackground: some View {
-        ZStack {
-            // 渐变背景 (This was the gradient around line 116)
-            LinearGradient(gradient: Gradient(colors: [Color(red: 0.90, green: 0.95, blue: 1.0), Color(red: 0.85, green: 0.91, blue: 1.0)]), startPoint: .topLeading, endPoint: .bottomTrailing)
-                .ignoresSafeArea()
-
-            mainContentContainer
+    private var statisticsView: some View {
+        HStack(spacing: 12) {
+            StatCard(title: "已读", value: "\(totalDeletedCount)", gradient: [Color.blue, Color.blue.opacity(0.8)])
+            StatCard(title: "今读", value: "\(todayDeletedCount)", gradient: [Color.green, Color.green.opacity(0.8)])
+            StatCard(title: "待读", value: "\(allArticles.count)", gradient: [Color.purple, Color.purple.opacity(0.8)])
         }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 8)
+        .onAppear(perform: checkAndResetDailyCount)
     }
 
-    // The summarizing overlay view
     @ViewBuilder
     private var summarizingOverlayView: some View {
         if isSummarizing {
             ZStack {
-                Color.black.opacity(0.2)
-                    .ignoresSafeArea() // Covers the whole screen
-
+                Color.black.opacity(0.2).ignoresSafeArea()
                 VStack {
-                    ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle(tint: .blue))
-                        .scaleEffect(2.0)
-
-                    Text("总结中...")
-                        .font(.headline)
-                        .foregroundColor(.primary) // Use .primary for better adaptability to light/dark mode
+                    ProgressView().scaleEffect(2.0)
+                    Text("总结中...").font(.headline)
                 }
                 .padding(20)
-                .background(Material.regular) // Using Material for a more modern blur effect
+                .background(Material.regular)
                 .cornerRadius(12)
                 .shadow(radius: 15)
             }
         }
     }
-
-    // The overall background for the entire view (applied last)
+    
     private var finalBackgroundView: some View {
         LinearGradient(gradient: Gradient(colors: [Color(red: 0.90, green: 0.95, blue: 1.0), Color(red: 0.85, green: 0.91, blue: 1.0)]), startPoint: .topLeading, endPoint: .bottomTrailing)
             .ignoresSafeArea()
     }
-
-    // 修改统计视图
-    private var statisticsView: some View {
-        HStack(spacing: 12) {
-            StatCard(
-                title: "已读",
-                value: "\(totalDeletedCount)",
-                gradient: [Color.blue, Color.blue.opacity(0.8)]
-            )
-            StatCard(
-                title: "今读",
-                value: "\(todayDeletedCount)",
-                gradient: [Color.green, Color.green.opacity(0.8)]
-            )
-            StatCard(
-                title: "待读",
-                value: "\(articles.count)",
-                gradient: [Color.purple, Color.purple.opacity(0.8)]
-            )
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 8)
-        .onAppear {
-            checkAndResetDailyCount()
-        }
-    }
-
-    // 添加检查并重置每日计数的函数
-    private func checkAndResetDailyCount() {
-        let calendar = Calendar.current
-        if !calendar.isDate(lastResetDate, inSameDayAs: Date()) {
-            // 如果不是同一天，重置今日计数
-            todayDeletedCount = 0
-            lastResetDate = Date()
-            UserDefaults.standard.set(todayDeletedCount, forKey: "todayDeletedCount")
-            UserDefaults.standard.set(lastResetDate, forKey: "lastResetDate")
-        }
-    }
-
+    
     // MARK: - Body
     var body: some View {
         ZStack {
-            // 背景
-            LinearGradient(gradient: Gradient(colors: [Color(red: 0.90, green: 0.95, blue: 1.0), Color(red: 0.85, green: 0.91, blue: 1.0)]), startPoint: .topLeading, endPoint: .bottomTrailing)
-                .ignoresSafeArea()
+            finalBackgroundView
 
             VStack(spacing: 0) {
-                // 顶部标题和统计
                 titleBar
                 statisticsView
-
-                // 文章列表
                 articleListContent
-
                 Spacer(minLength: 0)
-
-                // 底部操作栏（已移到最底部）
                 operationToolbarView
                     .padding(.horizontal, 20)
                     .padding(.top, 8)
@@ -280,41 +235,41 @@ struct SourceView: View {
                     .shadow(color: Color.black.opacity(0.04), radius: 2, x: 0, y: -2)
             }
         }
-        // 其它 overlay、alert、fileImporter 保持不变
         .overlay { summarizingOverlayView }
-        .background(finalBackgroundView)
         .navigationTitle("文章列表")
         .navigationBarTitleDisplayMode(.inline)
-        .alert("错误", isPresented: $showingError, presenting: errorMessage) { _ in
-            Button("确定", role: .cancel) {}
-        } message: { messageText in
-            Text(messageText)
+        .alert("错误", isPresented: $showingError, presenting: errorMessage) { _ in Button("确定") {} } message: { msg in Text(msg) }
+        .alert("导入成功", isPresented: $showingImportSuccess) { Button("确定") {} } message: { Text("成功导入 \(importedCount) 篇文章。") }
+        // 【修复】 .fileImporter 的 onCompletion 期望一个 `(Result<URL, any Error>) -> Void` 类型的闭包
+        .fileImporter(isPresented: $isImportingLocalFile, allowedContentTypes: [.json], onCompletion: handleFileImportResult)
+        .onChange(of: showingImportSuccess) { success in
+            if success {
+                viewModel.refreshData()
+            }
         }
-        .alert("导入成功", isPresented: $showingImportSuccess) {
-            Button("确定", role: .cancel) {}
-        } message: {
-            Text("成功导入 \(importedCount) 篇文章。")
-        }
-        .fileImporter(
-            isPresented: $isImportingLocalFile,
-            allowedContentTypes: [.json],
-            allowsMultipleSelection: false,
-            onCompletion: handleFileImportResult
-        )
     }
 
     // MARK: - Action Methods
 
+    private func checkAndResetDailyCount() {
+        if !Calendar.current.isDate(lastResetDate, inSameDayAs: Date()) {
+            todayDeletedCount = 0
+            lastResetDate = Date()
+            UserDefaults.standard.set(todayDeletedCount, forKey: "todayDeletedCount")
+            UserDefaults.standard.set(lastResetDate, forKey: "lastResetDate")
+        }
+    }
+
     private func selectAllArticles() {
-        if selectedArticles.count == articles.count && !articles.isEmpty {
-            selectedArticles = []
+        if selectedArticles.count == viewModel.articles.count && !viewModel.articles.isEmpty {
+            selectedArticles.removeAll()
         } else {
-            selectedArticles = Set(articles.map { ObjectIdentifier($0) })
+            selectedArticles = Set(viewModel.articles.map { ObjectIdentifier($0) })
         }
     }
 
     private func selectFiveArticles() {
-        let unselectedArticles = articles.filter { !selectedArticles.contains(ObjectIdentifier($0)) }
+        let unselectedArticles = viewModel.articles.filter { !selectedArticles.contains(ObjectIdentifier($0)) }
         let articlesToSelect = Array(unselectedArticles.prefix(5))
         selectedArticles.formUnion(articlesToSelect.map { ObjectIdentifier($0) })
     }
@@ -330,84 +285,45 @@ struct SourceView: View {
 
     private func openOriginalArticle(_ article: Article) {
         guard let urlString = article.link, let url = URL(string: urlString) else {
-            self.errorMessage = "无效的文章链接" // Use self.errorMessage for clarity
+            self.errorMessage = "无效的文章链接"
             self.showingError = true
             return
         }
         UIApplication.shared.open(url)
     }
 
-    // startChat function was empty and seemed to be replaced by .sheet(item: $selectedArticleForChat)
-    // If it had other logic, it should be reviewed. For now, it's removed as it's unused.
-
     private func summarizeSelectedArticles() {
-        guard !selectedArticles.isEmpty else {
-            self.errorMessage = "请先选择要总结的文章"
-            self.showingError = true
-            return
-        }
-
+        guard !selectedArticles.isEmpty else { return }
         isSummarizing = true
-
         let apiKey = UserDefaults.standard.string(forKey: "geminiApiKey") ?? ""
-        // let summaryPrompt = UserDefaults.standard.string(forKey: "batchSummaryPrompt") ?? Prompt.DEFAULT_BATCH_SUMMARY_PROMPT_NORMAL // Assuming Prompt struct exists
-        
-        // 在 SourceView.swift 的 summarizeSelectedArticles 函数中...
-
-        // 1. 先从 UserDefaults 中读取用户当前选择的是哪个方案（标准版还是语音版）
         let schemeRawValue = UserDefaults.standard.string(forKey: "selectedBatchScheme") ?? BatchPromptScheme.normal.rawValue
         let selectedScheme = BatchPromptScheme(rawValue: schemeRawValue) ?? .normal
-
-        // 2. 根据读出来的方案，拼接出正确的、带后缀的键
-        let promptKey = "batchSummaryPrompt_\(selectedScheme.rawValue)" 
-
-        // 3. 使用这个正确的键来获取对应的提示词
+        let promptKey = "batchSummaryPrompt_\(selectedScheme.rawValue)"
         let summaryPrompt = UserDefaults.standard.string(forKey: promptKey) ?? Prompt.defaultBatchSummary(for: selectedScheme)
 
-        guard !apiKey.isEmpty else {
-            self.errorMessage = "请先在设置中填写 Gemini API Key"
-            self.showingError = true
-            isSummarizing = false
-            return
-        }
+        guard !apiKey.isEmpty else { return }
 
-        guard !summaryPrompt.isEmpty else {
-            self.errorMessage = "请先在设置中填写批量总结提示词"
-            self.showingError = true
-            isSummarizing = false
-            return
-        }
-
-        let selectedArticlesData = articles.filter { selectedArticles.contains(ObjectIdentifier($0)) }
+        let selectedArticlesData = viewModel.articles.filter { selectedArticles.contains(ObjectIdentifier($0)) }
             .map { ["title": $0.title ?? "", "content": $0.content ?? ""] }
 
         Task {
             do {
                 let summaryText = try await GeminiService.summarizeArticles(articles: selectedArticlesData, apiKey: apiKey, summaryPrompt: summaryPrompt)
-
-                // Delete existing summaries (Replace batch delete with standard fetch and delete)
                 let fetchRequest: NSFetchRequest<BatchSummary> = BatchSummary.fetchRequest()
                 let existingSummaries = try viewContext.fetch(fetchRequest)
-                for summary in existingSummaries {
-                    viewContext.delete(summary)
-                }
+                existingSummaries.forEach(viewContext.delete)
 
-                // Create and save new summary
                 let newSummary = BatchSummary(context: viewContext)
                 newSummary.id = UUID()
                 newSummary.content = summaryText
                 newSummary.timestamp = Date()
                 try viewContext.save()
 
-                // 【修改】使用 DispatchQueue.main.async 来确保 UI 更新在主线程进行，并在保存完成后执行
-                DispatchQueue.main.async {
+                await MainActor.run {
                     self.selectedTab = .summary
                     self.isSummarizing = false
-                    print("[ArticleListView] Batch summary saved, switching to Summary tab.")
                 }
-
             } catch {
-                // Use await MainActor.run for UI updates from background task
                 await MainActor.run {
                     self.errorMessage = "总结失败: \(error.localizedDescription)"
                     self.showingError = true
@@ -416,46 +332,38 @@ struct SourceView: View {
             }
         }
     }
-
-    // 修改删除文章的函数
+    
     private func deleteSelectedArticles() {
-        let articlesToDelete = articles.filter { selectedArticles.contains(ObjectIdentifier($0)) }
+        let articlesToDelete = viewModel.articles.filter { selectedArticles.contains(ObjectIdentifier($0)) }
         articlesToDelete.forEach(viewContext.delete)
 
         do {
             try viewContext.save()
-            // 更新删除计数
             totalDeletedCount += articlesToDelete.count
             todayDeletedCount += articlesToDelete.count
             UserDefaults.standard.set(totalDeletedCount, forKey: "totalDeletedCount")
             UserDefaults.standard.set(todayDeletedCount, forKey: "todayDeletedCount")
-            selectedArticles = []
+            selectedArticles.removeAll()
+            viewModel.refreshData()
         } catch {
             self.errorMessage = "删除文章失败: \(error.localizedDescription)"
             self.showingError = true
-            print("Error deleting articles: \(error)")
         }
     }
 
-    // 添加删除确认对话框
     private func confirmDelete() {
         let alert = UIAlertController(title: "确认删除", message: "您确定要删除选中的文章吗？", preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "取消", style: .cancel))
-        alert.addAction(UIAlertAction(title: "删除", style: .destructive) { _ in
-            self.deleteSelectedArticles()
-        })
+        alert.addAction(UIAlertAction(title: "删除", style: .destructive) { _ in self.deleteSelectedArticles() })
         UIApplication.shared.windows.first?.rootViewController?.present(alert, animated: true)
     }
 
     // MARK: - File Import Handling
-    private func handleFileImportResult(_ result: Result<[URL], Error>) {
+    
+    // 【修复】修改函数签名以匹配 `(Result<URL, Error>)`
+    private func handleFileImportResult(_ result: Result<URL, Error>) { // 这里将 [URL] 改为 URL
         switch result {
-        case .success(let urls):
-            guard let selectedFile = urls.first else {
-                self.importError = "未选择文件" // Use specific importError state
-                self.showingError = true // Or a specific showingImportError state
-                return
-            }
+        case .success(let selectedFile): // 现在直接得到 URL，而不是数组
             processImportedFile(url: selectedFile)
         case .failure(let error):
             self.importError = "文件选择失败: \(error.localizedDescription)"
@@ -478,7 +386,7 @@ struct SourceView: View {
 
             saveImportedArticles(importedItems)
         } catch {
-            DispatchQueue.main.async { // Ensure UI updates are on main thread
+            DispatchQueue.main.async {
                 if let decodingError = error as? DecodingError {
                     print("JSON Decoding Error: \(decodingError)")
                     self.importError = "导入失败：JSON 解码错误。请检查文件格式。\n详细：\(decodingError.localizedDescription)"
@@ -510,17 +418,15 @@ struct SourceView: View {
                 if privateContext.hasChanges {
                     try privateContext.save()
                 }
-                // Push to parent (viewContext)
-                viewContext.performAndWait { // Ensure this is safe; if viewContext is main, this is fine.
+                viewContext.performAndWait {
                     do {
                         if viewContext.hasChanges {
                             try viewContext.save()
                         }
-                        // Update UI on the main thread
                         DispatchQueue.main.async {
                             self.importedCount = currentImportedCount
                             self.showingImportSuccess = true
-                            self.importError = nil // Clear any previous import error
+                            self.importError = nil
                         }
                     } catch {
                         DispatchQueue.main.async {
@@ -539,13 +445,7 @@ struct SourceView: View {
     }
 }
 
-// Assuming Prompt struct and GeminiService are defined elsewhere
-// For example:
-// struct Prompt { static let DEFAULT_BATCH_SUMMARY_PROMPT = "Summarize these articles." }
-// class GeminiService { static func summarizeArticles(articles: [[String: String]], apiKey: String, summaryPrompt: String) async throws -> String { /* ... */ return "Summary" } }
-
-
-// MARK: - ArticleCard (No changes, included for completeness)
+// MARK: - ArticleCard
 struct ArticleCard: View {
     let article: Article
     let isSelected: Bool
@@ -555,7 +455,7 @@ struct ArticleCard: View {
 
     private let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd" // Consider "yyyy-MM-dd HH:mm" for more detail if needed
+        formatter.dateFormat = "yyyy-MM-dd"
         return formatter
     }()
 
@@ -567,16 +467,16 @@ struct ArticleCard: View {
                     .frame(width: 22, height: 22)
                     .foregroundColor(isSelected ? Color.blue : Color.gray.opacity(0.6))
             }
-            .buttonStyle(PlainButtonStyle()) // Keep clicks from propagating if card is in a List
+            .buttonStyle(PlainButtonStyle())
 
             VStack(alignment: .leading, spacing: 0) {
                 Text(article.title ?? "无标题")
                     .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(Color(.label)) // Adapts to light/dark mode
+                    .foregroundColor(Color(.label))
                     .lineLimit(2)
                 Text("导入日期: \(article.importDate != nil ? dateFormatter.string(from: article.importDate!) : "-")")
                     .font(.system(size: 12))
-                    .foregroundColor(Color(.secondaryLabel)) // Adapts to light/dark mode
+                    .foregroundColor(Color(.secondaryLabel))
             }
             Spacer()
             Button(action: onViewOriginal) {
@@ -584,7 +484,7 @@ struct ArticleCard: View {
                     .font(.system(size: 20))
                     .foregroundColor(Color(.gray))
                     .padding(8)
-                    .background(Color(.systemGray6)) // Adapts to light/dark mode
+                    .background(Color(.systemGray6))
                     .clipShape(Circle())
             }
             Button(action: onChat) {
@@ -600,62 +500,20 @@ struct ArticleCard: View {
         }
         .padding(.vertical, 10)
         .padding(.horizontal, 16)
-        .background(Material.thin) // Using Material for a modern look, similar to .white.opacity(0.8) but adapts better
+        .background(Material.thin)
         .cornerRadius(14)
         .shadow(color: Color.black.opacity(0.05), radius: 8, x: 0, y: 2)
     }
 }
 
-// MARK: - ImportOptionsView
-struct ImportOptionsView: View {
-    let onImportLocal: () -> Void
-    @Environment(\.dismiss) var dismiss
-
-    var body: some View {
-        NavigationView {
-            List {
-                Button("从本地文件导入") {
-                    dismiss()
-                    onImportLocal()
-                }
-            }
-            .navigationTitle("选择导入方式")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") {
-                        dismiss()
-                    }
-                }
-            }
-        }
+// MARK: - Preview and other helpers
+struct ScrollOffsetPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
 
-// Preview (assuming PersistenceController and TabType exist)
-struct ArticleListView_Previews: PreviewProvider {
-    static var previews: some View {
-        let context = PersistenceController.preview.container.viewContext
-        // Add some mock articles for the preview
-        let article1 = Article(context: context)
-        article1.title = "示例文章 1"
-        article1.content = "这是示例文章 1 的内容"
-        article1.importDate = Date()
-        
-        let article2 = Article(context: context)
-        article2.title = "示例文章 2"
-        article2.content = "这是示例文章 2 的内容"
-        article2.importDate = Date().addingTimeInterval(-100)
-        
-        return SourceView(selectedTab: .constant(.source), selectedArticleForChat: .constant(nil))
-            .environment(\.managedObjectContext, context)
-    }
-}
-
-// Placeholder for TabType if it's not defined in this file
-// enum TabType { case source, summary /* other cases */ }
-
-// 添加统计卡片组件
 struct StatCard: View {
     let title: String
     let value: String
@@ -663,24 +521,13 @@ struct StatCard: View {
     
     var body: some View {
         VStack(alignment: .center, spacing: 4) {
-            Text(title)
-                .font(.system(size: 12))
-                .foregroundColor(.white.opacity(0.9))
-            Text(value)
-                .font(.system(size: 20, weight: .bold))
-                .foregroundColor(.white)
+            Text(title).font(.system(size: 12)).foregroundColor(.white.opacity(0.9))
+            Text(value).font(.system(size: 20, weight: .bold)).foregroundColor(.white)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 12)
-        .background(
-            LinearGradient(
-                gradient: Gradient(colors: gradient),
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
+        .background(LinearGradient(gradient: Gradient(colors: gradient), startPoint: .topLeading, endPoint: .bottomTrailing))
         .cornerRadius(12)
         .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
     }
 }
- 
