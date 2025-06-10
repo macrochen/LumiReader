@@ -159,9 +159,11 @@ struct SettingsView: View {
                     }
                     .onMove(perform: movePresetPrompt)
                 }
+                // 保留 minHeight: 400，如果你希望列表至少这么高
+                // 如果你想让它完全根据内容自适应，即使内容很少也收缩，就移除这个 minHeight
+                .frame(minHeight: 400) 
                 .environment(\.editMode, .constant(.active))
                 .listStyle(PlainListStyle())
-                .frame(minHeight: 200, maxHeight: 400)
                 .background(Color.clear)
                 .cornerRadius(6)
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.gray.opacity(0.5), lineWidth: 1))
@@ -241,7 +243,9 @@ struct SettingsView: View {
                 }
             }
             TextEditor(text: $presetPrompts[index].content)
-                .frame(height: 80)
+                .frame(minHeight: 80) // 【新增】为 TextEditor 设置一个合理的最小高度
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(4)
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.gray.opacity(0.5), lineWidth: 1))
         }
     }
@@ -249,7 +253,10 @@ struct SettingsView: View {
     private var newPromptInputView: some View {
         VStack(alignment: .leading, spacing: 12) {
             TextField("提示词标题", text: $tempNewPromptTitle).textFieldStyle(.roundedBorder)
-            TextEditor(text: $tempNewPromptContent).frame(height: 80)
+            TextEditor(text: $tempNewPromptContent)
+                .frame(minHeight: 80) // 【新增】为 TextEditor 设置一个合理的最小高度
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(4)
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.gray.opacity(0.5), lineWidth: 1))
             HStack {
                 Spacer()

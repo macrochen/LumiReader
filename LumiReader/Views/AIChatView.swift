@@ -254,11 +254,6 @@ struct AIChatView: View {
     private var presetPromptsView: some View {
         if !presetPrompts.isEmpty {
             VStack(alignment: .leading, spacing: 8) { // Ensure leading alignment for title
-                Text("选择预设提示词:") // Added a title for the section
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 10)
-
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(presetPrompts) { prompt in

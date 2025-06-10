@@ -57,23 +57,14 @@ struct SourceView: View {
         _viewModel = StateObject(wrappedValue: SourceViewModel(context: context))
     }
 
-    // MARK: - UI Views (恢复到你最初的版本)
+    // MARK: - UI Views
 
     private var titleBar: some View {
         HStack {
-            Text("")
+            Text("") // 保持这个空文本和 Spacer，以维持原有布局和可能未来的标题位置
                 .font(.system(size: 22, weight: .semibold))
             Spacer()
-            Button(action: {
-                isImportingLocalFile = true
-            }) {
-                Image(systemName: "square.and.arrow.down")
-                    .font(.system(size: 24, weight: .medium))
-                    .foregroundColor(Color(.gray))
-                    .padding(8)
-                    .background(Color(.systemGray5))
-                    .clipShape(Circle())
-            }
+            // 【移除】导入按钮已从这里移走
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 6)
@@ -81,8 +72,21 @@ struct SourceView: View {
 
     private var operationToolbarView: some View {
         HStack(spacing: 12) {
+            // 【新增】导入按钮放在最左边，并调整样式使其区分
+            Button(action: {
+                isImportingLocalFile = true
+            }) {
+                Image(systemName: "square.and.arrow.down") // 导入图标
+                    .font(.system(size: 20, weight: .medium)) // 调整字体大小使其与底部按钮更协调
+                    .foregroundColor(Color(.secondaryLabel)) // 使用更中性的颜色
+                    .padding(10) // 调整内边距
+                    .background(Color(.systemBackground)) // 使用系统背景色，看起来更“干净”
+                    .clipShape(Circle())
+                    .overlay(Circle().stroke(Color(.systemGray4), lineWidth: 1)) // 添加一个细边框增加质感
+            }
+            
             Button(action: selectAllArticles) {
-                Text("全部选中")
+                Text("全选")
                     .font(.system(size: 14, weight: .medium))
                     .foregroundColor(Color.blue)
                     .padding(.vertical, 7)
@@ -91,7 +95,7 @@ struct SourceView: View {
                     .cornerRadius(10)
             }
             Button(action: selectFiveArticles) {
-                Text("选中5篇")
+                Text("选5")
                     .font(.system(size: 14, weight: .medium))
                     .foregroundColor(Color.blue)
                     .padding(.vertical, 7)
@@ -100,7 +104,7 @@ struct SourceView: View {
                     .cornerRadius(10)
             }
             Button(action: summarizeSelectedArticles) {
-                Text("批量总结")
+                Text("总结")
                     .font(.system(size: 14, weight: .medium))
                     .foregroundColor(.white)
                     .padding(.vertical, 7)
@@ -110,7 +114,7 @@ struct SourceView: View {
             }
             .disabled(selectedArticles.isEmpty || isSummarizing)
             Button(action: confirmDelete) {
-                Text("删除选中")
+                Text("删选")
                     .font(.system(size: 14, weight: .medium))
                     .foregroundColor(.white)
                     .padding(.vertical, 7)
@@ -138,7 +142,7 @@ struct SourceView: View {
 
             VStack(spacing: 2) {
                 if viewModel.articles.isEmpty && !viewModel.isLoadingPage {
-                    Text("暂无文章，请点击右上角按钮导入")
+                    Text("暂无文章，请点击左下角导入按钮导入") // 【修改】提示文字
                         .foregroundColor(.gray)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.top, 40)
@@ -240,7 +244,6 @@ struct SourceView: View {
         .navigationBarTitleDisplayMode(.inline)
         .alert("错误", isPresented: $showingError, presenting: errorMessage) { _ in Button("确定") {} } message: { msg in Text(msg) }
         .alert("导入成功", isPresented: $showingImportSuccess) { Button("确定") {} } message: { Text("成功导入 \(importedCount) 篇文章。") }
-        // 【修复】 .fileImporter 的 onCompletion 期望一个 `(Result<URL, any Error>) -> Void` 类型的闭包
         .fileImporter(isPresented: $isImportingLocalFile, allowedContentTypes: [.json], onCompletion: handleFileImportResult)
         .onChange(of: showingImportSuccess) { success in
             if success {
@@ -359,11 +362,9 @@ struct SourceView: View {
     }
 
     // MARK: - File Import Handling
-    
-    // 【修复】修改函数签名以匹配 `(Result<URL, Error>)`
-    private func handleFileImportResult(_ result: Result<URL, Error>) { // 这里将 [URL] 改为 URL
+    private func handleFileImportResult(_ result: Result<URL, Error>) {
         switch result {
-        case .success(let selectedFile): // 现在直接得到 URL，而不是数组
+        case .success(let selectedFile):
             processImportedFile(url: selectedFile)
         case .failure(let error):
             self.importError = "文件选择失败: \(error.localizedDescription)"
@@ -469,24 +470,23 @@ struct ArticleCard: View {
             }
             .buttonStyle(PlainButtonStyle())
 
-            VStack(alignment: .leading, spacing: 0) {
-                Text(article.title ?? "无标题")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(Color(.label))
-                    .lineLimit(2)
-                Text("导入日期: \(article.importDate != nil ? dateFormatter.string(from: article.importDate!) : "-")")
-                    .font(.system(size: 12))
-                    .foregroundColor(Color(.secondaryLabel))
+            VStack(alignment: .leading, spacing: 4) {
+                // 将标题包裹在 Button 中，实现点击效果
+                Button(action: onViewOriginal) {
+                    Text(article.title ?? "无标题")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(.blue) // 颜色改为蓝色，使其看起来像链接
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading) // 确保多行文本左对齐
+                }
+                .buttonStyle(PlainButtonStyle()) // 使用 PlainButtonStyle 以避免影响整行点击
+                
             }
             Spacer()
-            Button(action: onViewOriginal) {
-                Image(systemName: "safari")
-                    .font(.system(size: 20))
-                    .foregroundColor(Color(.gray))
-                    .padding(8)
-                    .background(Color(.systemGray6))
-                    .clipShape(Circle())
-            }
+            
+            // 移除 Safari 按钮，因为点击标题已经可以打开原文
+            // Button(action: onViewOriginal) { ... }
+            
             Button(action: onChat) {
                 Text("对话")
                     .font(.system(size: 13, weight: .medium))
