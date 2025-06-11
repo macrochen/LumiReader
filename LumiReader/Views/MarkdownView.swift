@@ -24,15 +24,15 @@ struct MarkdownWebView: UIViewRepresentable {
     // MARK: - 新增回调闭包
     var onScrollToSentence: ((CGFloat) -> Void)? // 传递句子相对于WebView内容顶部的偏移量
 
-    func makeUIView(context: Context) -> WKWebView {
+    func makeUIView(context: Context) -> CustomWKWebView { // 返回 CustomWKWebView
         let preferences = WKPreferences()
         let configuration = WKWebViewConfiguration()
         configuration.preferences = preferences
         configuration.userContentController.add(context.coordinator, name: JAVASCRIPT_MESSAGE_HANDLER_NAME)
 
-        let webView = WKWebView(frame: .zero, configuration: configuration)
+        let webView = CustomWKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator
-        webView.uiDelegate = context.coordinator
+        webView.uiDelegate = context.coordinator // 【关键】Coordinator 是 uiDelegate
         
         webView.scrollView.bounces = false
         webView.isOpaque = false
@@ -42,7 +42,7 @@ struct MarkdownWebView: UIViewRepresentable {
         return webView
     }
 
-    func updateUIView(_ webView: WKWebView, context: Context) {
+    func updateUIView(_ webView: CustomWKWebView, context: Context) { // 参数类型是 CustomWKWebView
         let processedHtml = htmlForMarkdown(markdownText, articles: articlesToLink, context: context, fontSize: fontSize, segmentedSentences: segmentedSentencesForHTML)
         
         if context.coordinator.lastLoadedHTML != processedHtml {
@@ -168,9 +168,7 @@ struct MarkdownWebView: UIViewRepresentable {
                 if (element) {
                     element.classList.add('highlight');
                     currentHighlightedElement = element;
-                    // MARK: - 修改：不再调用 element.scrollIntoView()，而是发送消息给 Swift
                     if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.iOSNative) {
-                        // 发送元素相对于其 offsetParent（通常是文档body）的顶部偏移量
                         window.webkit.messageHandlers.iOSNative.postMessage({ 
                             type: 'scrollToHighlight',
                             offsetTop: element.offsetTop 
@@ -202,7 +200,9 @@ struct MarkdownWebView: UIViewRepresentable {
         .tts-sentence.highlight {
             background-color: rgba(255, 255, 0, 0.3);
         }
-        </style></head><body>\(currentHtml)<script type="text/javascript">\(autoCopyScript)\(highlightScript)
+        </style></head><body>\(currentHtml)<script type="text/javascript">
+        // 移除 document.addEventListener('contextmenu', event => event.preventDefault()); 这一行，因为 canPerformAction 会处理
+        \(autoCopyScript)\(highlightScript)
         function \(JS_GET_CONTENT_HEIGHT_FUNCTION)(){
             var height=Math.max(document.body.scrollHeight,document.documentElement.scrollHeight,document.body.offsetHeight,document.documentElement.offsetHeight,document.body.clientHeight,document.documentElement.clientHeight);
             if(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.\(JAVASCRIPT_MESSAGE_HANDLER_NAME)){
@@ -239,6 +239,7 @@ struct MarkdownWebView: UIViewRepresentable {
         return finalHtml
     }
     
+    // Coordinator 仍然遵守 WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler
     class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
         var parent: MarkdownWebView
         var lastLoadedHTML: String?
@@ -252,7 +253,10 @@ struct MarkdownWebView: UIViewRepresentable {
             webView.evaluateJavaScript("\(JS_GET_CONTENT_HEIGHT_FUNCTION)();") { (result, error) in
                 if let error = error { print("[MarkdownWebView] Error evaluating JS for height on didFinish: \(error.localizedDescription)") }
             }
-            updateHighlight(with: parent.highlightedSentenceIndex, in: webView)
+            // 确保 webView 可以安全地向下转型为 CustomWKWebView
+            if let customWebView = webView as? CustomWKWebView {
+                updateHighlight(with: parent.highlightedSentenceIndex, in: customWebView)
+            }
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
@@ -266,6 +270,8 @@ struct MarkdownWebView: UIViewRepresentable {
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
             if navigationAction.navigationType == .linkActivated, let url = navigationAction.request.url {
                 if ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
+                    // 对于外部链接和MarkdownWebView自身支持的链接（文章标题），直接通过UIApplication打开
+                    // 如果是内部文章链接，且匹配到了则交给系统浏览器
                     if parent.articlesToLink.contains(where: { $0.link == url.absoluteString }) {
                         UIApplication.shared.open(url)
                         decisionHandler(.cancel)
@@ -298,10 +304,10 @@ struct MarkdownWebView: UIViewRepresentable {
                             
                             DispatchQueue.main.async {
                                 self.parent.onAutoCopy?()
-                                webView.evaluateJavaScript("window.getSelection().removeAllRanges();", completionHandler: nil)
+                                // 保持移除自动取消选中
                             }
                         }
-                    // MARK: - 新增：处理来自JS的滚动请求
+                    // MARK: - 处理来自JS的滚动请求
                     case "scrollToHighlight":
                         if let offsetTop = body["offsetTop"] as? CGFloat {
                             self.parent.onScrollToSentence?(offsetTop)
@@ -318,7 +324,15 @@ struct MarkdownWebView: UIViewRepresentable {
             completionHandler()
         }
         
-        func updateHighlight(with newIndex: Int?, in webView: WKWebView) {
+        // MARK: - WKUIDelegate 方法，用于屏蔽上下文菜单
+        // 此方法必须在这里实现，因为 Coordinator 被设置为 uiDelegate。
+        func webView(_ webView: WKWebView, contextMenuConfigurationForElement element: WKContextMenuElementInfo, completionHandler: @escaping (UIContextMenuConfiguration?) -> Void) {
+            print("[MarkdownWebView Coordinator] contextMenuConfigurationForElement called. Suppressing menu.")
+            completionHandler(nil) // 返回 nil 来阻止上下文菜单的显示
+        }
+
+        // updateHighlight 方法的 webView 参数类型也应与 makeUIView 返回的类型匹配
+        func updateHighlight(with newIndex: Int?, in webView: CustomWKWebView) {
             guard newIndex != currentHighlightedSentenceIndex else { return } 
             
             DispatchQueue.main.async {
