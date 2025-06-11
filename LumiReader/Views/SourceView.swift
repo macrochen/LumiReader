@@ -72,17 +72,17 @@ struct SourceView: View {
 
     private var operationToolbarView: some View {
         HStack(spacing: 12) {
-            // 【新增】导入按钮放在最左边，并调整样式使其区分
+            // 导入按钮
             Button(action: {
                 isImportingLocalFile = true
             }) {
                 Image(systemName: "square.and.arrow.down") // 导入图标
-                    .font(.system(size: 20, weight: .medium)) // 调整字体大小使其与底部按钮更协调
-                    .foregroundColor(Color(.secondaryLabel)) // 使用更中性的颜色
-                    .padding(10) // 调整内边距
-                    .background(Color(.systemBackground)) // 使用系统背景色，看起来更“干净”
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundColor(Color(.secondaryLabel))
+                    .padding(10)
+                    .background(Color(.systemBackground))
                     .clipShape(Circle())
-                    .overlay(Circle().stroke(Color(.systemGray4), lineWidth: 1)) // 添加一个细边框增加质感
+                    .overlay(Circle().stroke(Color(.systemGray4), lineWidth: 1))
             }
             
             Button(action: selectAllArticles) {
@@ -103,6 +103,18 @@ struct SourceView: View {
                     .background(Color.blue.opacity(0.12))
                     .cornerRadius(10)
             }
+            // 【新增】归档按钮
+            Button(action: confirmArchive) {
+                Text("归档")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.white)
+                    .padding(.vertical, 7)
+                    .padding(.horizontal, 16)
+                    .background(LinearGradient(gradient: Gradient(colors: [Color.green.opacity(0.8), Color.green]), startPoint: .leading, endPoint: .trailing)) // 使用绿色或自定义颜色
+                    .cornerRadius(10)
+            }
+            .disabled(selectedArticles.isEmpty)
+            
             Button(action: summarizeSelectedArticles) {
                 Text("总结")
                     .font(.system(size: 14, weight: .medium))
@@ -113,6 +125,7 @@ struct SourceView: View {
                     .cornerRadius(10)
             }
             .disabled(selectedArticles.isEmpty || isSummarizing)
+            
             Button(action: confirmDelete) {
                 Text("删选")
                     .font(.system(size: 14, weight: .medium))
@@ -142,7 +155,7 @@ struct SourceView: View {
 
             VStack(spacing: 2) {
                 if viewModel.articles.isEmpty && !viewModel.isLoadingPage {
-                    Text("暂无文章，请点击左下角导入按钮导入") // 【修改】提示文字
+                    Text("暂无文章，请点击左下角导入按钮导入")
                         .foregroundColor(.gray)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.top, 40)
@@ -354,10 +367,63 @@ struct SourceView: View {
         }
     }
 
+    // 【新增】归档选中的文章
+    private func archiveSelectedArticles() {
+        let articlesToArchive = viewModel.articles.filter { selectedArticles.contains(ObjectIdentifier($0)) }
+        
+        let privateContext = NSManagedObjectContext(concurrencyType: .privateQueueConcurrencyType)
+        privateContext.parent = viewContext
+        
+        privateContext.perform {
+            for article in articlesToArchive {
+                // 将文章的 importDate 设置为一个非常早的日期
+                // 这将使得它们在按 importDate 降序排序时排在最末尾
+                if let articleInPrivateContext = privateContext.object(with: article.objectID) as? Article {
+                    articleInPrivateContext.importDate = Date.distantPast 
+                }
+            }
+
+            do {
+                if privateContext.hasChanges {
+                    try privateContext.save()
+                }
+                viewContext.performAndWait { // 确保主上下文也保存变更
+                    do {
+                        if viewContext.hasChanges {
+                            try viewContext.save()
+                        }
+                        DispatchQueue.main.async {
+                            self.selectedArticles.removeAll() // 清除选中状态
+                            self.viewModel.refreshData() // 刷新列表以显示新的排序
+                        }
+                    } catch {
+                        DispatchQueue.main.async {
+                            self.errorMessage = "归档失败：保存到主上下文错误：\(error.localizedDescription)"
+                            self.showingError = true
+                        }
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.errorMessage = "归档失败：私有上下文操作错误：\(error.localizedDescription)"
+                    self.showingError = true
+                }
+            }
+        }
+    }
+
     private func confirmDelete() {
         let alert = UIAlertController(title: "确认删除", message: "您确定要删除选中的文章吗？", preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "取消", style: .cancel))
         alert.addAction(UIAlertAction(title: "删除", style: .destructive) { _ in self.deleteSelectedArticles() })
+        UIApplication.shared.windows.first?.rootViewController?.present(alert, animated: true)
+    }
+
+    // 【新增】确认归档的弹窗
+    private func confirmArchive() {
+        let alert = UIAlertController(title: "确认归档", message: "您确定要将选中的文章归档吗？归档后的文章将显示在列表底部。", preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        alert.addAction(UIAlertAction(title: "归档", style: .default) { _ in self.archiveSelectedArticles() })
         UIApplication.shared.windows.first?.rootViewController?.present(alert, animated: true)
     }
 
@@ -446,7 +512,7 @@ struct SourceView: View {
     }
 }
 
-// MARK: - ArticleCard
+// MARK: - ArticleCard (保持不变)
 struct ArticleCard: View {
     let article: Article
     let isSelected: Bool
@@ -484,9 +550,6 @@ struct ArticleCard: View {
             }
             Spacer()
             
-            // 移除 Safari 按钮，因为点击标题已经可以打开原文
-            // Button(action: onViewOriginal) { ... }
-            
             Button(action: onChat) {
                 Text("对话")
                     .font(.system(size: 13, weight: .medium))
@@ -506,7 +569,7 @@ struct ArticleCard: View {
     }
 }
 
-// MARK: - Preview and other helpers
+// MARK: - Preview and other helpers (保持不变)
 struct ScrollOffsetPreferenceKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
