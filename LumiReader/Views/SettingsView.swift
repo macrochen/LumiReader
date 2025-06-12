@@ -1,12 +1,6 @@
-//
-//  SettingsView.swift
-//  LumiReader
-//
-//  Created by jolin on 2025/5/31.
-//
-
 import SwiftUI
 import CoreData
+import AVFoundation // 导入 AVFoundation 以访问语速的 min/max 值
 
 struct SettingsView: View {
     // MARK: - State Properties
@@ -23,6 +17,9 @@ struct SettingsView: View {
     @AppStorage("geminiApiKey") private var geminiApiKey: String = ""
     @AppStorage("chatSummaryFontSize") private var chatSummaryFontSize: Double = 15.0
     
+    // TTS 服务 - 通过 @StateObject 访问共享单例
+    @StateObject private var ttsService = TTSService.shared
+
     // 列表编辑和删除状态
     @State private var editingPromptId: UUID? = nil
     @State private var showingNewPromptInput = false
@@ -31,6 +28,29 @@ struct SettingsView: View {
     @State private var promptToDelete: (index: Int, title: String)? = nil
     @State private var showingDeleteAlert = false
     
+    // MARK: - 辅助函数：将内部语速（0.0-1.0）转换为显示语速（0.0x-3.5x）
+    private func displayRate(for rawRate: Float) -> Float {
+        let defaultRawRate = AVSpeechUtteranceDefaultSpeechRate // 通常是 0.5
+        let minRawRate = AVSpeechUtteranceMinimumSpeechRate // 通常是 0.0
+        let maxRawRate = AVSpeechUtteranceMaximumSpeechRate // 通常是 1.0
+
+        let minDisplayRate: Float = 0.0 // 对应 rawRate 0.0 时的显示
+        let defaultDisplayRate: Float = 1.0 // 对应 rawRate 0.5 时的显示 (1倍速)
+        let maxDisplayRate: Float = 3.5 // 对应 rawRate 1.0 时的显示 (3.5倍速)
+
+        if rawRate <= defaultRawRate {
+            // 线性映射从 [minRawRate, defaultRawRate] 到 [minDisplayRate, defaultDisplayRate]
+            // 例如：0.0 -> 0.0x, 0.25 -> 0.5x, 0.5 -> 1.0x
+            let normalizedRate = (rawRate - minRawRate) / (defaultRawRate - minRawRate)
+            return minDisplayRate + (normalizedRate * (defaultDisplayRate - minDisplayRate))
+        } else {
+            // 线性映射从 (defaultRawRate, maxRawRate] 到 (defaultDisplayRate, maxDisplayRate]
+            // 例如：0.5 -> 1.0x, 0.75 -> 2.25x, 1.0 -> 3.5x
+            let normalizedRate = (rawRate - defaultRawRate) / (maxRawRate - defaultRawRate)
+            return defaultDisplayRate + (normalizedRate * (maxDisplayRate - defaultDisplayRate))
+        }
+    }
+
     // MARK: - Body
     var body: some View {
         ZStack {
@@ -41,9 +61,10 @@ struct SettingsView: View {
                 ScrollView {
                     VStack(spacing: 20) {
                         displaySettingsSection
+                        ttsSettingsSection // 新增：朗读设置
                         apiKeySection
                         batchSummarySection
-                        presetPromptsSection // 现在是独立的部分
+                        presetPromptsSection 
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
@@ -63,7 +84,7 @@ struct SettingsView: View {
             Button("删除", role: .destructive) {
                 if let index = promptToDelete?.index {
                     deletePrompt(at: index)
-                    savePresetPrompts() // 删除后直接保存
+                    savePresetPrompts() 
                 }
                 promptToDelete = nil
             }
@@ -86,6 +107,40 @@ struct SettingsView: View {
                     Slider(value: $chatSummaryFontSize, in: 12...30, step: 1)
                     Text("\(Int(chatSummaryFontSize))")
                         .frame(width: 30, alignment: .trailing)
+                }
+            }
+        }
+    }
+
+    private var ttsSettingsSection: some View {
+        SettingGroupBox(title: "朗读设置") {
+            SettingItem {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("语速")
+                            .font(.body)
+                            .frame(width: 60, alignment: .leading)
+                        
+                        Slider(value: $ttsService.currentRate, 
+                               in: AVSpeechUtteranceMinimumSpeechRate...AVSpeechUtteranceMaximumSpeechRate,
+                               step: 0.05) // 增加一个步长，让调整更细腻
+                            .onChange(of: ttsService.currentRate) { newValue in
+                                ttsService.updateRate(newValue)
+                            }
+                        
+                        // MARK: - 修改：使用 displayRate 函数来显示语速，并加上 " x" 后缀
+                        Text(String(format: "%.2f x", displayRate(for: ttsService.currentRate))) // 显示两位小数并加上 " x"
+                            .font(.subheadline)
+                            .frame(width: 60, alignment: .trailing) // 调整宽度以适应 "xx.x x"
+                    }
+                    
+                    HStack {
+                        Spacer()
+                        Button("恢复默认语速") {
+                            ttsService.updateRate(AVSpeechUtteranceDefaultSpeechRate) // 使用 updateRate 方法来恢复默认值
+                        }
+                        .font(.system(size: 13, weight: .medium)).foregroundColor(.blue)
+                    }
                 }
             }
         }
@@ -159,8 +214,6 @@ struct SettingsView: View {
                     }
                     .onMove(perform: movePresetPrompt)
                 }
-                // 保留 minHeight: 400，如果你希望列表至少这么高
-                // 如果你想让它完全根据内容自适应，即使内容很少也收缩，就移除这个 minHeight
                 .frame(minHeight: 400) 
                 .environment(\.editMode, .constant(.active))
                 .listStyle(PlainListStyle())
@@ -228,9 +281,8 @@ struct SettingsView: View {
                 }
                 .buttonStyle(PlainButtonStyle())
             }
-            .padding(.leading, 8)
+            .padding(.vertical, 4)
         }
-        .padding(.vertical, 4)
     }
 
     private func editingPresetPromptRowView(index: Int) -> some View {
@@ -243,7 +295,7 @@ struct SettingsView: View {
                 }
             }
             TextEditor(text: $presetPrompts[index].content)
-                .frame(minHeight: 80) // 【新增】为 TextEditor 设置一个合理的最小高度
+                .frame(minHeight: 80) 
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(4)
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.gray.opacity(0.5), lineWidth: 1))
@@ -254,7 +306,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 12) {
             TextField("提示词标题", text: $tempNewPromptTitle).textFieldStyle(.roundedBorder)
             TextEditor(text: $tempNewPromptContent)
-                .frame(minHeight: 80) // 【新增】为 TextEditor 设置一个合理的最小高度
+                .frame(minHeight: 80) 
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(4)
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.gray.opacity(0.5), lineWidth: 1))
@@ -276,7 +328,6 @@ struct SettingsView: View {
     private func saveBatchPrompt() {
         let key = "batchSummaryPrompt_\(selectedBatchScheme.rawValue)"
         UserDefaults.standard.set(batchSummaryPrompt, forKey: key)
-        // You can add a success message here if needed.
     }
     
     private func loadPresetPrompts() {
@@ -296,18 +347,17 @@ struct SettingsView: View {
     private func saveNewPrompt() {
         let newPrompt = Prompt(title: tempNewPromptTitle, content: tempNewPromptContent)
         presetPrompts.append(newPrompt)
-        savePresetPrompts() // Add and save
+        savePresetPrompts() 
         cancelAddNewPrompt()
     }
     
     private func deletePrompt(at index: Int) {
         presetPrompts.remove(at: index)
-        // The save is handled in the alert confirmation
     }
     
     private func movePresetPrompt(from source: IndexSet, to destination: Int) {
         presetPrompts.move(fromOffsets: source, toOffset: destination)
-        savePresetPrompts() // Move and save
+        savePresetPrompts() 
     }
     
     private func cancelAddNewPrompt() {
@@ -317,8 +367,7 @@ struct SettingsView: View {
     }
 }
 
-// 【新增】重新添加回来的辅助视图
-// MARK: - 分组卡片
+// MARK: - 辅助视图
 struct SettingGroupBox<Content: View>: View {
     let title: String
     let content: () -> Content
@@ -340,7 +389,6 @@ struct SettingGroupBox<Content: View>: View {
     }
 }
 
-// MARK: - 设置项
 struct SettingItem<Content: View>: View {
     let content: () -> Content
     

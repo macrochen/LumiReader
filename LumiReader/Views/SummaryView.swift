@@ -25,8 +25,6 @@ struct SummaryView: View {
     
     @State private var currentHighlightedSentenceIndex: Int? = nil
     
-    // MARK: - 移除 @State 变量，改为实时计算
-
     private let pattern = "(?s)```markdown\\n(.*?)\\n```"
 
     private func preprocessMarkdownSummary(_ rawSummary: String) -> (processedText: String, segmentedSentences: [(text: String, originalRange: NSRange)]) {
@@ -44,7 +42,7 @@ struct SummaryView: View {
                 }
             }
         } catch {
-            print("[SummaryView] Error creating or using regex for markdown stripping: \(error)")
+                print("[SummaryView] Error creating or using regex for markdown stripping: \(error)")
         }
 
         var sentences: [(text: String, originalRange: NSRange)] = []
@@ -63,8 +61,8 @@ struct SummaryView: View {
             .foregroundColor(ttsService.isPlaying || ttsService.isPaused ? .blue : .gray)
     }
 
-    // MARK: - 修改：让 ttsControlPanel 接收参数
-    private func ttsControlPanel(processedMarkdown: String) -> some View {
+    // MARK: - 修改：ttsControlPanel 移除了进度条显示部分
+    private func ttsControlPanel(processedMarkdown: String, segmentedSummaryContentForHTML: [(text: String, originalRange: NSRange)]) -> some View {
         VStack(spacing: 12) {
             HStack(spacing: 16) {
                 Button(action: {
@@ -80,19 +78,6 @@ struct SummaryView: View {
                 }) {
                     playPauseImage 
                 }
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("语速")
-                            .font(.system(size: 12))
-                            .foregroundColor(.gray)
-                            .frame(width: 40, alignment: .leading)
-                        Slider(value: $ttsService.currentRate, in: AVSpeechUtteranceMinimumSpeechRate...AVSpeechUtteranceMaximumSpeechRate)
-                            .onChange(of: ttsService.currentRate) { newValue in
-                                ttsService.updateRate(newValue)
-                            }
-                    }
-                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
@@ -100,27 +85,28 @@ struct SummaryView: View {
             .cornerRadius(12)
             .shadow(color: Color.black.opacity(0.1), radius: 3, x: 0, y: 1)
 
-            if ttsService.totalCharacters > 0 && (ttsService.isPlaying || ttsService.isPaused) {
-                VStack(spacing: 5) {
-                    ProgressView(value: ttsService.playbackProgress)
-                        .progressViewStyle(LinearProgressViewStyle(tint: .accentColor))
-                        .animation(.linear(duration: 0.1), value: ttsService.playbackProgress)
-                        .padding(.horizontal)
+            // MARK: - 移除此处显示进度条和百分比的 VStack
+            // if ttsService.totalCharacters > 0 && (ttsService.isPlaying || ttsService.isPaused) {
+            //     VStack(spacing: 5) {
+            //         ProgressView(value: ttsService.playbackProgress)
+            //             .progressViewStyle(LinearProgressViewStyle(tint: .accentColor))
+            //             .animation(.linear(duration: 0.1), value: ttsService.playbackProgress)
+            //             .padding(.horizontal)
                     
-                    HStack {
-                        Text(String(format: "%.0f%%", ttsService.playbackProgress * 100))
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                        Spacer()
-                        Text("\(ttsService.spokenCharacters)/\(ttsService.totalCharacters)")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.horizontal)
-                }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 8)
-            }
+            //         HStack {
+            //             Text(String(format: "%.0f%%", ttsService.playbackProgress * 100))
+            //                 .font(.caption2)
+            //                 .foregroundColor(.secondary)
+            //             Spacer()
+            //             Text("\(ttsService.spokenCharacters)/\(ttsService.totalCharacters)")
+            //                 .font(.caption2)
+            //                 .foregroundColor(.secondary)
+            //         }
+            //         .padding(.horizontal)
+            //     }
+            //     .padding(.horizontal, 16)
+            //     .padding(.bottom, 8)
+            // }
         }
         .padding(.horizontal, 16)
     }
@@ -130,9 +116,7 @@ struct SummaryView: View {
 
     private let markdownWebViewID = "markdownContentWebView"
 
-    // MARK: - 修复：在视图主体中实时计算数据
     private var mainContentStack: some View {
-        // 在每次渲染时都从最新的数据源进行计算，确保数据同步
         let latestSummaryContent = batchSummaries.first?.content ?? ""
         let (processedMarkdown, segmentedSummaryContentForHTML) = preprocessMarkdownSummary(latestSummaryContent)
 
@@ -174,7 +158,7 @@ struct SummaryView: View {
                                         showCopyToast = false
                                     }
                                 },
-                                segmentedSentencesForHTML: segmentedSummaryContentForHTML, // 传递实时计算的数据
+                                segmentedSentencesForHTML: segmentedSummaryContentForHTML, // 传递实时计算的数据，供 WebView 高亮用
                                 highlightedSentenceIndex: $currentHighlightedSentenceIndex,
                                 onScrollToSentence: { offsetTop in
                                     guard self.markdownViewHeight > 0 else { return }
@@ -192,7 +176,6 @@ struct SummaryView: View {
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 20)
-                    // MARK: - 简化：onChange 只负责处理副作用（停止TTS、滚动）
                     .onChange(of: batchSummaries.first?.content) { oldContent, newContent in
                         if newContent != oldContent {
                             print("Summary content changed! Resetting TTS and scroll position.")
@@ -208,7 +191,7 @@ struct SummaryView: View {
             }
             
             // 传递实时计算的数据给控制面板
-            ttsControlPanel(processedMarkdown: processedMarkdown)
+            ttsControlPanel(processedMarkdown: processedMarkdown, segmentedSummaryContentForHTML: segmentedSummaryContentForHTML)
                 .padding(.top, 8)
         }
         .padding(.top, UIApplication.shared.windows.first?.safeAreaInsets.top ?? 0)
