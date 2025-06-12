@@ -943,7 +943,8 @@ extension AIChatView {
     }
 }
 
-// MARK: - ChatBubble 结构体 (主要修改点在此)
+
+// MARK: - ChatBubble 结构体
 
 struct ChatBubble: View {
     let message: ChatMessage
@@ -963,11 +964,17 @@ struct ChatBubble: View {
     let articleTitle: String?
     let articleLink: String?
     
-    // MARK: - 关键修复：为每个按钮定义独立的 @GestureState 变量
     @GestureState private var isReadButtonPressing: Bool = false
     @GestureState private var isCopyMessageButtonPressing: Bool = false
     @GestureState private var isCopyArticleButtonPressing: Bool = false
 
+    // MARK: - 新增：用于控制用户消息折叠状态的 State 变量
+    @State private var isUserMessageExpanded: Bool = false
+    // 默认折叠的行数阈值
+    private let collapsedLineLimit: Int = 1 
+    // 文本内容长度阈值，超过这个长度才可能折叠
+    private let contentLengthThreshold: Int = 50 // 比如50个字符
+    
     private var bubbleFont: UIFont {
         return UIFont.systemFont(ofSize: fontSize)
     }
@@ -983,35 +990,65 @@ struct ChatBubble: View {
             }
 
             VStack(alignment: message.sender == .user ? .trailing : .leading, spacing: 4) {
-                Text(attributedContent)
-                    .textSelection(.enabled)
-                    .font(.system(size: fontSize))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(message.sender == .user ? Color.blue : Color(.systemGray5))
-                    .cornerRadius(16)
-                    .frame(maxWidth: UIScreen.main.bounds.width * 0.9, alignment: message.sender == .user ? .trailing : .leading)
-                    .fixedSize(horizontal: false, vertical: true)
+                // MARK: - 修改：用户消息的文本显示逻辑，实现折叠
+                if message.sender == .user {
+                    Text(attributedContent)
+                        .textSelection(.enabled)
+                        .font(.system(size: fontSize))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Color.blue) // 用户消息背景
+                        .cornerRadius(16)
+                        .frame(maxWidth: UIScreen.main.bounds.width * 0.9, alignment: .trailing)
+                        .fixedSize(horizontal: false, vertical: true)
+                        // MARK: - 折叠/展开逻辑应用在这里
+                        .lineLimit(isUserMessageExpanded ? nil : collapsedLineLimit) // 根据状态设置行数限制
+                        .overlay(alignment: .bottomTrailing) { // “展开”按钮的定位
+                            // 只有当消息是用户发送的，且内容长度超过阈值，且当前未展开时才显示“展开”按钮
+                            if message.sender == .user && message.content.count > contentLengthThreshold && !isUserMessageExpanded {
+                                Button("展开") {
+                                    withAnimation(.easeOut) {
+                                        isUserMessageExpanded = true
+                                    }
+                                }
+                                .font(.caption2)
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.blue.opacity(0.8))
+                                .cornerRadius(8)
+                                .offset(x: -8, y: -4) // 稍微向上/左偏移，避免与内容重叠
+                            }
+                        }
+                } else { // AI 消息保持不变
+                    Text(attributedContent)
+                        .textSelection(.enabled)
+                        .font(.system(size: fontSize))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Color(.systemGray5)) // AI 消息背景
+                        .cornerRadius(16)
+                        .frame(maxWidth: UIScreen.main.bounds.width * 0.9, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 
                 // 时间戳和操作按钮区域
-                HStack(spacing: 12) { // 按钮之间的间距
+                HStack(spacing: 12) {
                     Text(timestamp.formattedTime)
                         .font(.caption2)
                         .foregroundColor(.secondary)
                     
                     // 仅当是 AI 消息且内容不为空且非流式输出时，显示朗读和复制按钮
                     if message.sender == .gemini && !message.content.isEmpty && !isStreaming {
-                        // MARK: - 朗读按钮
                         Button(action: {
-                            onSpeakAIMessage(message.content) // 调用朗读闭包
+                            onSpeakAIMessage(message.content)
                         }) {
                             Image(systemName: "speaker.wave.2.fill")
-                                .font(.system(size: 24)) // 增大按钮尺寸
+                                .font(.system(size: 24))
                                 .foregroundColor(.blue)
-                                .contentShape(Rectangle()) // 使整个图片区域可点击
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(PlainButtonStyle())
-                        // MARK: - 视觉和触觉反馈 (绑定到 isReadButtonPressing)
                         .sensoryFeedback(.impact(weight: .light), trigger: isReadButtonPressing) 
                         .scaleEffect(isReadButtonPressing ? 0.85 : 1.0) 
                         .animation(.spring(response: 0.2, dampingFraction: 0.75), value: isReadButtonPressing) 
@@ -1022,7 +1059,6 @@ struct ChatBubble: View {
                                 }
                         )
                         
-                        // MARK: - 复制按钮 1 (复制纯文本)
                         Button {
                             onCopyMessage(message.content)
                         } label: {
@@ -1032,7 +1068,6 @@ struct ChatBubble: View {
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(PlainButtonStyle())
-                        // MARK: - 视觉和触觉反馈 (绑定到 isCopyMessageButtonPressing)
                         .sensoryFeedback(.impact(weight: .light), trigger: isCopyMessageButtonPressing)
                         .scaleEffect(isCopyMessageButtonPressing ? 0.85 : 1.0)
                         .animation(.spring(response: 0.2, dampingFraction: 0.75), value: isCopyMessageButtonPressing)
@@ -1043,7 +1078,6 @@ struct ChatBubble: View {
                                 }
                         )
                         
-                        // MARK: - 复制按钮 2 (复制文章信息+消息内容)
                         Button {
                             onCopyArticleAndMessage(attributedContent, articleTitle, articleLink)
                         } label: {
@@ -1053,7 +1087,6 @@ struct ChatBubble: View {
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(PlainButtonStyle())
-                        // MARK: - 视觉和触觉反馈 (绑定到 isCopyArticleButtonPressing)
                         .sensoryFeedback(.impact(weight: .light), trigger: isCopyArticleButtonPressing)
                         .scaleEffect(isCopyArticleButtonPressing ? 0.85 : 1.0)
                         .animation(.spring(response: 0.2, dampingFraction: 0.75), value: isCopyArticleButtonPressing)
@@ -1064,7 +1097,16 @@ struct ChatBubble: View {
                                 }
                         )
                     } else if message.sender == .user {
-                        // 用户消息下方，目前只显示时间戳，没有其他操作按钮
+                        // MARK: - 用户消息：如果已展开且内容超过阈值，显示“收起”按钮
+                        if isUserMessageExpanded && message.content.count > contentLengthThreshold {
+                            Button("收起") {
+                                withAnimation(.easeOut) {
+                                    isUserMessageExpanded = false
+                                }
+                            }
+                            .font(.caption2)
+                            .foregroundColor(.blue) // 收起按钮可以是蓝色
+                        }
                     }
                 }
                 .font(.caption) 
@@ -1080,6 +1122,7 @@ struct ChatBubble: View {
         }
         .padding(message.sender == .user ? .leading : .trailing, UIScreen.main.bounds.width * 0.05)
         .padding(.vertical, 4)
+        // MARK: - 长按菜单保持不变
         .contextMenu {
             Button {
                 onCopyMessage(message.content)
@@ -1098,6 +1141,7 @@ struct ChatBubble: View {
         }
     }
 }
+
 
 // MARK: - PreviewProvider
 struct AIChatView_Previews: PreviewProvider {
