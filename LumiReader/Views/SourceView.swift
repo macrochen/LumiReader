@@ -85,6 +85,18 @@ struct SourceView: View {
                     .overlay(Circle().stroke(Color(.systemGray4), lineWidth: 1))
             }
             
+            // 【新增】归档按钮
+            Button(action: confirmArchive) {
+                Text("归档")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.white)
+                    .padding(.vertical, 7)
+                    .padding(.horizontal, 16)
+                    .background(LinearGradient(gradient: Gradient(colors: [Color.green.opacity(0.8), Color.green]), startPoint: .leading, endPoint: .trailing)) // 使用绿色或自定义颜色
+                    .cornerRadius(10)
+            }
+            .disabled(selectedArticles.isEmpty)
+            
             Button(action: selectAllArticles) {
                 Text("全选")
                     .font(.system(size: 14, weight: .medium))
@@ -103,17 +115,6 @@ struct SourceView: View {
                     .background(Color.blue.opacity(0.12))
                     .cornerRadius(10)
             }
-            // 【新增】归档按钮
-            Button(action: confirmArchive) {
-                Text("归档")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(.white)
-                    .padding(.vertical, 7)
-                    .padding(.horizontal, 16)
-                    .background(LinearGradient(gradient: Gradient(colors: [Color.green.opacity(0.8), Color.green]), startPoint: .leading, endPoint: .trailing)) // 使用绿色或自定义颜色
-                    .cornerRadius(10)
-            }
-            .disabled(selectedArticles.isEmpty)
             
             Button(action: summarizeSelectedArticles) {
                 Text("总结")
@@ -136,6 +137,7 @@ struct SourceView: View {
                     .cornerRadius(10)
             }
             .disabled(selectedArticles.isEmpty)
+            
         }
         .background(
             LinearGradient(
