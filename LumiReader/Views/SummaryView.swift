@@ -61,7 +61,6 @@ struct SummaryView: View {
             .foregroundColor(ttsService.isPlaying || ttsService.isPaused ? .blue : .gray)
     }
 
-    // MARK: - 修改：ttsControlPanel 移除了进度条显示部分
     private func ttsControlPanel(processedMarkdown: String, segmentedSummaryContentForHTML: [(text: String, originalRange: NSRange)]) -> some View {
         VStack(spacing: 12) {
             HStack(spacing: 16) {
@@ -70,10 +69,11 @@ struct SummaryView: View {
                         if ttsService.isPlaying || ttsService.isPaused {
                             ttsService.togglePlayPause()
                         } else {
-                            ttsService.speak(processedMarkdown)
+                            // MARK: - 修改：SummaryView 朗读时启用高亮
+                            ttsService.speak(processedMarkdown, enableHighlighting: true)
                         }
                     } else {
-                        print("[SummaryView] No summary content to play.")
+                        // print("[SummaryView] 无总结内容可播放。")
                     }
                 }) {
                     playPauseImage 
@@ -84,29 +84,6 @@ struct SummaryView: View {
             .background(Color(.systemGray6))
             .cornerRadius(12)
             .shadow(color: Color.black.opacity(0.1), radius: 3, x: 0, y: 1)
-
-            // MARK: - 移除此处显示进度条和百分比的 VStack
-            // if ttsService.totalCharacters > 0 && (ttsService.isPlaying || ttsService.isPaused) {
-            //     VStack(spacing: 5) {
-            //         ProgressView(value: ttsService.playbackProgress)
-            //             .progressViewStyle(LinearProgressViewStyle(tint: .accentColor))
-            //             .animation(.linear(duration: 0.1), value: ttsService.playbackProgress)
-            //             .padding(.horizontal)
-                    
-            //         HStack {
-            //             Text(String(format: "%.0f%%", ttsService.playbackProgress * 100))
-            //                 .font(.caption2)
-            //                 .foregroundColor(.secondary)
-            //             Spacer()
-            //             Text("\(ttsService.spokenCharacters)/\(ttsService.totalCharacters)")
-            //                 .font(.caption2)
-            //                 .foregroundColor(.secondary)
-            //         }
-            //         .padding(.horizontal)
-            //     }
-            //     .padding(.horizontal, 16)
-            //     .padding(.bottom, 8)
-            // }
         }
         .padding(.horizontal, 16)
     }
@@ -138,7 +115,7 @@ struct SummaryView: View {
                                 .padding(.top, 50)
                         } else {
                             MarkdownWebView(
-                                markdownText: processedMarkdown, // 传递实时计算的数据
+                                markdownText: processedMarkdown, 
                                 articlesToLink: Array(allArticles),
                                 fontSize: CGFloat(chatSummaryFontSize),
                                 dynamicHeight: $markdownViewHeight,
@@ -158,7 +135,7 @@ struct SummaryView: View {
                                         showCopyToast = false
                                     }
                                 },
-                                segmentedSentencesForHTML: segmentedSummaryContentForHTML, // 传递实时计算的数据，供 WebView 高亮用
+                                segmentedSentencesForHTML: segmentedSummaryContentForHTML, 
                                 highlightedSentenceIndex: $currentHighlightedSentenceIndex,
                                 onScrollToSentence: { offsetTop in
                                     guard self.markdownViewHeight > 0 else { return }
@@ -178,7 +155,7 @@ struct SummaryView: View {
                     .padding(.vertical, 20)
                     .onChange(of: batchSummaries.first?.content) { oldContent, newContent in
                         if newContent != oldContent {
-                            print("Summary content changed! Resetting TTS and scroll position.")
+                            // print("Summary content changed! Resetting TTS and scroll position.")
                             ttsService.stop()
                             
                             withAnimation(.easeOut) {
@@ -190,7 +167,6 @@ struct SummaryView: View {
                 .background(Color.clear)
             }
             
-            // 传递实时计算的数据给控制面板
             ttsControlPanel(processedMarkdown: processedMarkdown, segmentedSummaryContentForHTML: segmentedSummaryContentForHTML)
                 .padding(.top, 8)
         }
