@@ -16,6 +16,7 @@ enum GeminiServiceError: Error {
     case emptyResponse // API 返回空内容
     case unknown(Error) // 其他未知错误
     case networkError(String) // Network error with description
+    case jsonConversionError(String) // 新增：JSON转换错误
 }
 
 struct GeminiService {
@@ -28,13 +29,31 @@ struct GeminiService {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
+        // MARK: - 核心修改部分 Start
+        // 1. 将 articles 数组转换为 JSON Data
+        guard let articlesJsonData = try? JSONSerialization.data(withJSONObject: articles, options: .prettyPrinted) else {
+            throw GeminiServiceError.jsonConversionError("Failed to convert articles array to JSON data.")
+        }
+        
+        // 2. 将 JSON Data 转换为 String
+        guard let articlesJsonString = String(data: articlesJsonData, encoding: .utf8) else {
+            throw GeminiServiceError.jsonConversionError("Failed to convert articles JSON data to String.")
+        }
+        // MARK: - 核心修改部分 End
+
         // Use Encodable structs for summarizeArticles request body
         let summarizeRequestBody = ChatCompletionRequestBody(
             contents: [
                 Content(
                     role: "user",
                     parts: [
-                        Part(text: "请以Markdown格式返回以下内容的总结:\n\n\(articles)\n\n总结要求:\(summaryPrompt)")
+                        Part(text: """
+                            请以Markdown格式，根据以下提供的JSON格式文档内容进行总结。
+                            ```json
+                            \(articlesJsonString)
+                            ```
+                            总结要求: \(summaryPrompt)
+                            """)
                     ]
                 )
             ],
@@ -47,6 +66,13 @@ struct GeminiService {
         )
 
         request.httpBody = try JSONEncoder().encode(summarizeRequestBody)
+        
+        // 打印请求体以便调试
+        if let jsonString = String(data: request.httpBody!, encoding: .utf8) {
+            print("Summarization Request Body:\n\(jsonString)")
+        } else {
+            print("Failed to convert summarizeArticles HTTP body to string for logging.")
+        }
 
         let (data, response) = try await URLSession.shared.data(for: request)
 
@@ -55,9 +81,16 @@ struct GeminiService {
         }
         
         guard httpResponse.statusCode == 200 else {
-            // Attempt to read error body if available (common for non-200)
+            // 尝试读取并解析API返回的错误信息
             if let errorBodyString = String(data: data, encoding: .utf8) {
-                throw GeminiServiceError.apiError(message: "HTTP Status Code: \(httpResponse.statusCode), Body: \(errorBodyString)")
+                if let decodedError = try? JSONDecoder().decode(GeminiAPIErrorResponse.self, from: data) {
+                     print("API Error (Summarize): Status Code \(httpResponse.statusCode), Message: \(decodedError.error.message)")
+                     throw GeminiServiceError.apiError(message: decodedError.error.message)
+                } else {
+                    // 如果无法解析为GeminiAPIErrorResponse，则返回原始字符串
+                    print("HTTP Error (Summarize): Status Code \(httpResponse.statusCode), Body: \(errorBodyString)")
+                    throw GeminiServiceError.apiError(message: "HTTP Status Code: \(httpResponse.statusCode), Body: \(errorBodyString)")
+                }
             } else {
                 throw GeminiServiceError.httpError(statusCode: httpResponse.statusCode)
             }
@@ -70,7 +103,14 @@ struct GeminiService {
               let parts = content["parts"] as? [[String: Any]],
               let firstPart = parts.first,
               let text = firstPart["text"] as? String else {
-            throw GeminiServiceError.emptyResponse // Or a more specific parsing error if needed
+            
+            // 如果解析失败，打印原始响应数据以便调试
+            if let rawResponseString = String(data: data, encoding: .utf8) {
+                 print("Failed to parse Gemini summarize response. Raw data:\n\(rawResponseString)")
+            } else {
+                 print("Failed to parse Gemini summarize response. Raw data not convertible to string.")
+            }
+            throw GeminiServiceError.emptyResponse // 或者更具体的解析错误
         }
 
         return text
@@ -155,7 +195,7 @@ struct GeminiService {
         
         // Print the encoded JSON body for debugging
         if let jsonString = String(data: httpBody, encoding: .utf8) {
-            print("Sending Request Body:\n\(jsonString)")
+            print("Chat Streaming Request Body:\n\(jsonString)")
         } else {
             print("Failed to convert HTTP body to string for logging.")
         }
@@ -212,7 +252,7 @@ struct GeminiService {
                                   return
                               }
                               
-                              // Print the jsonString for debugging
+                              // Print the jsonString for debugging (可选，如果输出太多可以注释掉)
                             //   print("Received JSON Chunk:\n\(jsonString)")
                               
                               if let jsonData = jsonString.data(using: .utf8) {
@@ -250,10 +290,7 @@ struct GeminiService {
                      // Only finish if [DONE] was NOT received (checked inside the loop)
                      // If [DONE] was received, continuation.finish() was already called.
                      // If we reached here because the connection closed without [DONE], it's an unexpected end.
-                     // Let's add a flag to track if [DONE] was processed.
-                     // *** Correction: Continuation should finish when the loop exits unless an error happened before.***
-                     // The previous logic was mostly correct for unexpected end after processing lines.
-                     continuation.finish(throwing: GeminiServiceError.unknown(NSError(domain: "GeminiService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Stream ended unexpectedly before [DONE] signal."]))) // Or a more specific error
+                     continuation.finish(throwing: GeminiServiceError.unknown(NSError(domain: "GeminiService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Stream ended unexpectedly before [DONE] signal."])))
  
                  } catch {
                      // Handle errors from URLSession.shared.bytes (e.g., network issues)
@@ -296,8 +333,9 @@ struct GeminiService {
         // Construct contents array using Encodable structs, similar to chatWithGemini
         var contents: [Content] = []
         
-        // Add chat history
-        for message in history.dropLast() {
+        // Add chat history (dropLast() here is intentional based on original code,
+        // if you want to include the last history message, remove .dropLast())
+        for message in history.dropLast() { 
             let role = message.sender == .user ? "user" : "model"
             contents.append(
                 Content(
@@ -355,9 +393,9 @@ struct GeminiService {
              throw NSError(domain: "GeminiService", code: 0, userInfo: [NSLocalizedDescriptionKey: "Failed to encode request body"])
         }
         
-        // Print the encoded JSON body for debugging
+        // Print the encoded JSON body for debugging (可选，如果输出太多可以注释掉)
         // if let jsonString = String(data: httpBody, encoding: .utf8) {
-        //     // print("Sending Non-Streaming Request Body:\n\(jsonString)")
+        //     print("Sending Non-Streaming Request Body:\n\(jsonString)")
         // } else {
         //     print("Failed to convert HTTP body to string for logging.")
         // }
@@ -372,19 +410,17 @@ struct GeminiService {
         }
         
         guard httpResponse.statusCode == 200 else {
-             // Attempt to read error body if available
+             // 尝试读取并解析API返回的错误信息
              if let errorBodyString = String(data: data, encoding: .utf8) {
-                 // Try decoding as GeminiAPIErrorResponse first
                  if let decodedError = try? JSONDecoder().decode(GeminiAPIErrorResponse.self, from: data) {
                       print("API Error (Non-Streaming): Status Code \(httpResponse.statusCode), Message: \(decodedError.error.message)")
                       throw GeminiServiceError.apiError(message: decodedError.error.message)
                  } else {
-                     // Fallback to raw string if JSON decoding fails
+                     // 如果无法解析为GeminiAPIErrorResponse，则返回原始字符串
                      print("HTTP Error (Non-Streaming): Status Code \(httpResponse.statusCode), Body: \(errorBodyString)")
                      throw GeminiServiceError.apiError(message: "HTTP Status Code: \(httpResponse.statusCode), Body: \(errorBodyString)")
                  }
              } else {
-                 // Fallback to just status code if no body or decoding fails
                  print("HTTP Error (Non-Streaming): Status Code \(httpResponse.statusCode), Failed to decode error body.")
                  throw GeminiServiceError.httpError(statusCode: httpResponse.statusCode)
              }
@@ -399,14 +435,14 @@ struct GeminiService {
               let firstPart = parts.first,
               let text = firstPart["text"] as? String else {
             
-            // Log the raw response data if parsing fails
+            // 如果解析失败，打印原始响应数据以便调试
             if let rawResponseString = String(data: data, encoding: .utf8) {
                  print("Failed to parse Gemini non-streaming response. Raw data:\n\(rawResponseString)")
             } else {
                  print("Failed to parse Gemini non-streaming response. Raw data not convertible to string.")
             }
             
-            throw GeminiServiceError.emptyResponse // Or a more specific parsing error
+            throw GeminiServiceError.emptyResponse // 或者更具体的解析错误
         }
         
         return text
@@ -443,6 +479,9 @@ struct SafetySetting: Encodable {
 }
 
 // Decodable structs for streaming API response (adjust according to Gemini API response structure)
+// Note: StreamCompletionResponse and StreamChoice/Delta appear to be leftovers from OpenAI API structures
+// For Gemini, GeminiStreamResponse, GeminiCandidate, GeminiContent, GeminiPart are used.
+// Keeping them for now, but confirm if StreamCompletionResponse/StreamChoice/StreamDelta are actually used anywhere.
 struct StreamCompletionResponse: Decodable {
     let choices: [StreamChoice]? // choices might be optional/empty on some responses
     let promptFeedback: PromptFeedback? // Add prompt feedback struct if needed
@@ -480,17 +519,22 @@ struct GeminiCitationSource: Decodable {
     let license: String?
 }
 
+// Gemini specific response structs
 struct GeminiStreamResponse: Decodable {
     let candidates: [GeminiCandidate]?
+    let promptFeedback: PromptFeedback? // Add prompt feedback here if it can appear on stream response
 }
 
 struct GeminiCandidate: Decodable {
     let content: GeminiContent?
     let finishReason: String?
+    let citationMetadata: GeminiCitationMetadata? // Add citation metadata
+    let safetyRatings: [SafetyRating]? // Add safety ratings here
 }
 
 struct GeminiContent: Decodable {
     let parts: [GeminiPart]?
+    let role: String? // Role might be present in content too
 }
 
 struct GeminiPart: Decodable {
@@ -506,5 +550,4 @@ struct APIError: Decodable {
     let code: Int
     let message: String
     let status: String
-} 
- 
+}

@@ -596,7 +596,7 @@ struct AIChatView: View {
             } else if let urlError = error as? URLError {
                 return .networkError(urlError.localizedDescription)
             } else if let geminiError = error as? GeminiServiceError {
-                switch geminiError {
+                switch geminiError { // 编译错误就是在这里
                 case .networkError(let description):
                     return .networkError(description)
                 case .apiError(let message):
@@ -608,9 +608,15 @@ struct AIChatView: View {
                 case .httpError(let statusCode):
                     return .apiError("HTTP Status Code: \(statusCode)")
                 case .unknown(let underlyingError):
+                    // 尝试提取更具体的错误信息，或者直接使用 localizedDescription
+                    if let concreteError = underlyingError as? LocalizedError {
+                        return .unknown(concreteError.errorDescription ?? underlyingError.localizedDescription)
+                    }
                     return .unknown(underlyingError.localizedDescription)
                 case .invalidResponseType:
                     return .unknown("API 返回了无效的响应类型。")
+                case .jsonConversionError(let description): // <-- 新增的 case 处理
+                    return .apiError("数据处理失败: JSON 转换错误 - \(description)")
                 }
             } else {
                 return .unknown(error.localizedDescription)
